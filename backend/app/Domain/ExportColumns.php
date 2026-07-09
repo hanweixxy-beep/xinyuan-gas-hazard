@@ -1,0 +1,41 @@
+<?php
+
+namespace App\Domain;
+
+final class ExportColumns
+{
+    /** @return list<array{key:string, label:string}> */
+    public static function all(): array
+    {
+        return [
+            ['key' => 'sequence', 'label' => '序号'],
+            ['key' => 'customerName', 'label' => '用户名'],
+            ['key' => 'storefrontPhoto', 'label' => '门头照片'],
+            ['key' => 'customerPhone', 'label' => '电话'],
+            ['key' => 'customerType', 'label' => '用户类型'],
+            ['key' => 'customerAddress', 'label' => '地址'],
+            ['key' => 'inspectorName', 'label' => '检查人'],
+            ['key' => 'inspectionDate', 'label' => '检查日期'],
+            ['key' => 'checkResult', 'label' => '检查结果'],
+            ['key' => 'alarmIssue', 'label' => '可燃气体报警器'],
+            ['key' => 'alarmPhoto', 'label' => '照片'],
+            ['key' => 'hoseIssue', 'label' => '软管'],
+            ['key' => 'hosePhoto', 'label' => '照片'],
+            ['key' => 'environmentIssue', 'label' => '用气环境'],
+            ['key' => 'environmentPhoto', 'label' => '照片'],
+            ['key' => 'valveIssue', 'label' => '减压阀'],
+            ['key' => 'valvePhoto', 'label' => '照片'],
+            ['key' => 'guideIssue', 'label' => '安全用气指南'],
+            ['key' => 'guidePhoto', 'label' => '照片'],
+            ['key' => 'deliveryPerson', 'label' => '配送员'],
+            ['key' => 'remark', 'label' => '备注'],
+            ['key' => 'gasSourceIssue', 'label' => '气源排查项目'],
+            ['key' => 'cylinderQrPhoto', 'label' => '钢瓶二维码照片'],
+            ['key' => 'cylinderPhoto', 'label' => '钢瓶照片'],
+            ['key' => 'rectificationDate', 'label' => '整改日期'],
+            ['key' => 'rectificationNote', 'label' => '整改情况'],
+            ['key' => 'rectificationPerson', 'label' => '整改人'],
+            ['key' => 'rectificationPhoto', 'label' => '整改照片'],
+        ];
+    }
+}

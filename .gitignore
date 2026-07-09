@@ -1,0 +1,56 @@
+# Local/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Codex workspace/runtime output
+/.agents/
+/.codex/
+/work/
+/outputs/
+
+# Secrets and machine-local config
+.env
+.env.*
+!*.env.example
+local.properties
+*.pem
+*.key
+*.pub
+*.p12
+*.pfx
+*.jks
+*.keystore
+release-keystore.properties
+signing/
+ssh/
+ssh_known_hosts
+
+# Android build output
+mobile-app/.gradle/
+mobile-app/.kotlin/
+mobile-app/**/build/
+mobile-app/**/captures/
+mobile-app/**/*.apk
+mobile-app/**/*.aab
+
+# Runtime uploads, backups, and generated exports
+backend/storage/
+backend/uploads/
+uploads/
+storage/
+*.xlsx
+*.xls
+*.csv
+*.zip
+*.tgz
+*.tar
+*.gz
+*.bak
+
+# Python and Node caches
+__pycache__/
+*.pyc
+node_modules/
+

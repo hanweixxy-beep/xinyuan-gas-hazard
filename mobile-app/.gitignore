@@ -1,0 +1,27 @@
+# Build outputs
+/build/
+/app/build/
+/.gradle/
+/.kotlin/
+
+# Signing keys - DO NOT COMMIT
+*.jks
+*.keystore
+signing/
+keystore.properties
+
+# Local config
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Node modules (temp)
+node_modules/
+package.json
+package-lock.json
+
+# Temp files
+getip.js
+work/

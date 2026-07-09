@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>隐患排查后台</title>
+  <link rel="stylesheet" href="./styles.css?v=20260708-5">
+</head>
+<body>
+  <main class="layout">
+    <header>
+      <div class="brand">
+        <img class="brand-logo" src="./assets/xinyuan-logo.png" alt="淮北鑫远燃气有限公司">
+        <div class="brand-copy">
+          <h1>隐患排查管理后台</h1>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="userBadge" class="muted hidden"></span>
+        <button id="homeBtn" type="button">功能首页</button>
+        <button id="changePasswordBtn" type="button">修改密码</button>
+        <button id="logoutBtn" type="button">退出/切换账号</button>
+        <button id="refreshBtn" type="button">刷新记录</button>
+      </div>
+    </header>
+
+    <section id="loginPanel" class="card login">
+      <h2>后台登录</h2>
+      <label>手机号<input id="loginPhone" inputmode="tel" autocomplete="username"></label>
+      <label>密码<input id="loginPassword" type="password" autocomplete="current-password"></label>
+      <button id="loginBtn" class="primary" type="button">登录</button>
+    </section>
+
+    <section id="dashboard" class="hidden">
+      <section id="moduleHome" class="module-panel">
+        <section class="summary">
+          <div><strong id="totalCount">0</strong><span>全部记录</span></div>
+          <div><strong id="pendingCount">0</strong><span>待整改</span></div>
+          <div><strong id="doneCount">0</strong><span>已完成/已整改</span></div>
+        </section>
+
+        <section class="module-grid">
+          <button class="module-card" type="button" data-module="records">
+            <span>记录</span>
+            <strong>检查记录管理</strong>
+            <em>筛选、查看详情、整改闭环</em>
+          </button>
+          <button class="module-card" type="button" data-module="export">
+            <span>导出</span>
+            <strong>数据导出</strong>
+            <em>导出带照片的完整 Excel</em>
+          </button>
+          <button class="module-card" type="button" data-module="admin">
+            <span>账号</span>
+            <strong>账号与公司管理</strong>
+            <em>公司、人员、密码和状态</em>
+          </button>
+          <button class="module-card" type="button" data-module="help">
+            <span>说明</span>
+            <strong>版本与使用说明</strong>
+            <em>当前版本、操作建议</em>
+          </button>
+        </section>
+      </section>
+
+      <section id="recordsPanel" class="module-panel hidden">
+        <section class="summary">
+          <div><strong id="recordsTotalCount">0</strong><span>当前列表</span></div>
+          <div><strong id="recordsPendingCount">0</strong><span>待整改</span></div>
+          <div><strong id="recordsDoneCount">0</strong><span>已完成/已整改</span></div>
+        </section>
+
+        <section class="card">
+        <div class="section-head">
+          <h2>检查记录</h2>
+          <div class="section-actions">
+            <button id="exportBtn" type="button">导出 Excel</button>
+            <button id="resetFiltersBtn" type="button">重置筛选</button>
+          </div>
+        </div>
+        <form id="filtersForm" class="filters">
+          <label class="filter-wide">关键词
+            <input name="keyword" placeholder="用户、电话、地址、检查人">
+          </label>
+          <label id="filterCompanyField" class="hidden">公司
+            <select id="filterCompanySelect" name="companyId">
+              <option value="">全部公司</option>
+            </select>
+          </label>
+          <label>状态
+            <select name="status">
+              <option value="">全部</option>
+              <option value="pending">待整改</option>
+              <option value="done">已完成</option>
+              <option value="rectified">已整改</option>
+            </select>
+          </label>
+          <label>检查结果
+            <select name="checkResult">
+              <option value="">全部结果</option>
+              <option value="隐患已清零">隐患已清零</option>
+              <option value="隐患未清零">隐患未清零</option>
+              <option value="隐患已整改">隐患已整改</option>
+            </select>
+          </label>
+          <label>用户类型
+            <select name="customerType">
+              <option value="">全部类型</option>
+              <option value="居民用户">居民用户</option>
+              <option value="商业用户">商业用户</option>
+              <option value="餐饮用户">餐饮用户</option>
+              <option value="工业用户">工业用户</option>
+              <option value="流动摊贩">流动摊贩</option>
+            </select>
+          </label>
+          <label>检查人
+            <input name="inspectorName" placeholder="检查人姓名">
+          </label>
+          <label>配送员
+            <input name="deliveryPerson" placeholder="配送员姓名">
+          </label>
+          <label>开始日期
+            <input name="dateFrom" type="date">
+          </label>
+          <label>结束日期
+            <input name="dateTo" type="date">
+          </label>
+          <button class="primary compact filter-action" type="submit">查询</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>公司</th>
+                <th>用户</th>
+                <th>电话</th>
+                <th>地址</th>
+                <th>结果</th>
+                <th>检查人</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="recordRows"></tbody>
+          </table>
+        </div>
+        <div id="recordPager" class="pager"></div>
+        </section>
+      </section>
+
+      <section id="adminPanel" class="card admin-panel module-panel hidden">
+        <div class="section-head">
+          <h2>账号与公司管理</h2>
+          <button id="reloadAdminBtn" type="button">刷新账号</button>
+        </div>
+
+        <div class="management-grid">
+          <form id="companyForm" class="manage-form hidden">
+            <h3>新增公司</h3>
+            <label>公司名称
+              <input name="name" placeholder="例如：淮北鑫远燃气相山分公司">
+            </label>
+            <label>公司编码
+              <input name="code" placeholder="例如：XS_BRANCH">
+            </label>
+            <button class="primary" type="submit">新增公司</button>
+          </form>
+
+          <form id="userForm" class="manage-form">
+            <h3>新增用户</h3>
+            <label id="userCompanyField">所属公司
+              <select name="companyId" id="userCompanySelect"></select>
+            </label>
+            <label>姓名
+              <input name="name" placeholder="检查员姓名">
+            </label>
+            <label>手机号
+              <input name="phone" placeholder="登录手机号">
+            </label>
+            <label>角色
+              <select name="role" id="userRoleSelect">
+                <option value="inspector">检查员</option>
+                <option value="company_admin">公司管理员</option>
+                <option value="hq_admin">总部管理员</option>
+              </select>
+            </label>
+            <label>初始密码
+              <input name="password" type="password" placeholder="至少 8 位">
+            </label>
+            <button class="primary" type="submit">新增用户</button>
+          </form>
+        </div>
+
+        <div id="companyListBlock" class="management-list hidden">
+          <h3>公司列表</h3>
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>公司</th>
+                  <th>编码</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="companyRows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="management-list">
+          <h3>用户列表</h3>
+          <div class="table-wrap compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>姓名</th>
+                  <th>手机号</th>
+                  <th>公司</th>
+                  <th>角色</th>
+                  <th>状态</th>
+                  <th>最后登录</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="userRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="exportPanel" class="card module-panel hidden">
+        <div class="section-head">
+          <h2>数据导出</h2>
+          <button id="exportPanelBtn" class="primary compact" type="button">导出完整 Excel</button>
+        </div>
+        <p class="muted">导出会使用“检查记录管理”里的筛选条件。照片列将尽量嵌入图片；如果服务器找不到图片文件，会保留文件路径方便排查。</p>
+        <div class="export-tips">
+          <div><strong>固定 27 列</strong><span>保持原始交付格式</span></div>
+          <div><strong>包含照片</strong><span>门头、隐患、钢瓶、整改照片</span></div>
+          <div><strong>权限隔离</strong><span>总部、公司、检查员按角色导出</span></div>
+        </div>
+      </section>
+
+      <section id="helpPanel" class="card module-panel hidden">
+        <h2>版本与使用说明</h2>
+        <p class="muted">当前为 H5 测试版。电脑端负责记录管理、账号公司、整改闭环和导出；手机端负责现场核查录入。</p>
+        <ul class="help-list">
+          <li>正式上线前，请创建正式管理员账号并停用测试账号。</li>
+          <li>一线检查员使用手机端 `/mobile/`，管理员使用电脑端 `/admin/`。</li>
+          <li>当前阶段聚焦终端隐患核查、整改闭环和数据导出。</li>
+        </ul>
+      </section>
+    </section>
+
+    <section id="recordModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <p id="modalCompany" class="muted"></p>
+            <h2 id="modalTitle">记录详情</h2>
+          </div>
+          <button id="closeModalBtn" type="button">关闭</button>
+        </div>
+
+        <div id="recordDetail" class="detail-grid"></div>
+
+        <div class="detail-section">
+          <h3>隐患项目</h3>
+          <div id="hazardDetail" class="tag-list"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3>气源排查</h3>
+          <div id="gasSourceDetail" class="tag-list"></div>
+        </div>
+
+        <div class="detail-section">
+          <h3>照片</h3>
+          <div id="photoDetail" class="photo-list"></div>
+        </div>
+
+        <form id="rectifyForm" class="rectify hidden">
+          <h3>整改闭环</h3>
+          <label>整改日期
+            <input name="rectificationDate" type="date" required>
+          </label>
+          <label>整改情况
+            <textarea name="rectificationNote" rows="3" placeholder="填写整改措施、复核情况"></textarea>
+          </label>
+          <label>整改人
+            <input name="rectificationPerson" type="text" autocomplete="name">
+          </label>
+          <label>整改照片
+            <input name="rectificationPhotos" type="file" accept="image/*" multiple>
+          </label>
+          <button class="primary" type="submit">提交整改</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="passwordModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-password-close="1"></div>
+      <div class="modal-panel small-modal">
+        <div class="modal-head">
+          <div>
+            <p class="muted">账号安全</p>
+            <h2>修改密码</h2>
+          </div>
+          <button id="closePasswordModalBtn" type="button">关闭</button>
+        </div>
+        <form id="passwordForm" class="rectify">
+          <label>当前密码
+            <input name="currentPassword" type="password" required>
+          </label>
+          <label>新密码
+            <input name="newPassword" type="password" required minlength="8">
+          </label>
+          <label>确认新密码
+            <input name="confirmPassword" type="password" required minlength="8">
+          </label>
+          <button class="primary" type="submit">确认修改</button>
+        </form>
+      </div>
+    </section>
+
+    <footer class="site-footer">淮北鑫远燃气有限公司市场部 韩永龙</footer>
+    <p id="toast" class="toast hidden"></p>
+  </main>
+  <script type="module" src="./app.js?v=20260708-5"></script>
+</body>
+</html>
