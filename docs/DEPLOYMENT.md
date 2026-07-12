@@ -34,9 +34,17 @@ nginx -t
 
 ## 数据库
 
-数据库迁移脚本放在 `database/patches/`。生产执行前必须先备份数据库。
+完整基础表结构位于 `database/schema.sql`，增量迁移脚本放在 `database/patches/`。
+
+新服务器先导入基础表结构，再按文件日期顺序执行迁移脚本。生产执行前必须先备份数据库。
+
+```bash
+mysql -u root -p -e "CREATE DATABASE xinyuan_gas CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p xinyuan_gas < database/schema.sql
+```
+
+Nginx 参考配置位于 `deploy/nginx/xinyuan-gas.conf.example`。
 
 ## Android APP
 
 Android 工程在 `mobile-app/`。签名文件不进入仓库，需要从安全备份恢复到 `mobile-app/signing/`。
-

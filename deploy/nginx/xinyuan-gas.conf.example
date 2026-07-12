@@ -1,0 +1,45 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /var/www/xinyuan-gas;
+    index index.html;
+
+    client_max_body_size 20m;
+
+    location /admin/ {
+        alias /var/www/xinyuan-gas/frontend/admin/;
+        try_files $uri $uri/ /admin/index.html;
+    }
+
+    location /mobile/ {
+        alias /var/www/xinyuan-gas/frontend/mobile/;
+        try_files $uri $uri/ /mobile/index.html;
+    }
+
+    location /shared/ {
+        alias /var/www/xinyuan-gas/shared/;
+        try_files $uri =404;
+    }
+
+    location /uploads/ {
+        alias /var/www/xinyuan-gas/backend/storage/uploads/;
+        types { }
+        default_type application/octet-stream;
+        location ~ \.php$ { return 403; }
+    }
+
+    location /api/ {
+        try_files $uri /backend/public/index.php$is_args$args;
+    }
+
+    location ~ ^/backend/public/index\.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME /var/www/xinyuan-gas/backend/public/index.php;
+    }
+
+    location ~ \.php$ {
+        return 403;
+    }
+}

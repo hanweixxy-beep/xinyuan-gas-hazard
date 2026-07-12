@@ -1,0 +1,15 @@
+* text=auto
+
+*.php text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
