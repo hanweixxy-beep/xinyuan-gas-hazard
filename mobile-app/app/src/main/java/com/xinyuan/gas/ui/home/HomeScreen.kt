@@ -1,10 +1,8 @@
 package com.xinyuan.gas.ui.home
 
 import android.content.Context
-import android.content.Intent
-import android.widget.Toast
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,10 +10,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -23,27 +21,35 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.Today
+import androidx.compose.material.icons.filled.ManageSearch
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,30 +59,41 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import com.xinyuan.gas.BuildConfig
+import com.xinyuan.gas.data.model.TerminalHazardCatalog
+import com.xinyuan.gas.data.model.TerminalHazardRecord
 import com.xinyuan.gas.ui.about.AppGuideDialog
 import com.xinyuan.gas.ui.components.BrandLogo
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
+import com.xinyuan.gas.ui.theme.BlueLight
 import com.xinyuan.gas.ui.theme.BluePrimary
+import com.xinyuan.gas.ui.theme.BrandGreen
+import com.xinyuan.gas.ui.theme.BrandGreenSoft
+import com.xinyuan.gas.ui.theme.BrandGreenStrong
 import com.xinyuan.gas.ui.theme.GrayBackground
 import com.xinyuan.gas.ui.theme.GraySecondaryText
-import com.xinyuan.gas.ui.theme.GrayTertiaryText
+import com.xinyuan.gas.ui.theme.GraySeparator
+import com.xinyuan.gas.ui.theme.GraySurface
 import com.xinyuan.gas.ui.theme.GreenSuccess
+import com.xinyuan.gas.ui.theme.InkPrimary
 import com.xinyuan.gas.ui.theme.OrangeAccent
+import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
-import com.xinyuan.gas.util.ExportUtil
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.xinyuan.gas.ui.theme.RedSoft
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
+    viewModel: InspectionViewModel,
     onNavigateToBottledModule: () -> Unit,
     onNavigateToTerminalModule: () -> Unit,
+    onNavigateToNewTerminal: () -> Unit,
+    onNavigateToTerminalList: () -> Unit,
     onNavigateToDataManagement: () -> Unit,
     onNavigateToAppGuide: () -> Unit
 ) {
@@ -84,6 +101,9 @@ fun HomeScreen(
     val preferences = remember(context) {
         context.getSharedPreferences("xinyuan_app_settings", Context.MODE_PRIVATE)
     }
+    val cloudSettings by viewModel.cloudSettings.collectAsState()
+    val todayCount by viewModel.terminalTodayCount.collectAsState(initial = 0)
+    val pendingCount by viewModel.terminalPendingCount.collectAsState(initial = 0)
     var showGuideDialog by remember { mutableStateOf(false) }
 
     fun dismissGuideDialog() {
@@ -94,63 +114,91 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        val lastSeenVersion = preferences.getInt("last_seen_guide_version_code", 0)
-        showGuideDialog = lastSeenVersion < BuildConfig.VERSION_CODE
+        showGuideDialog = preferences.getInt("last_seen_guide_version_code", 0) < BuildConfig.VERSION_CODE
     }
 
     if (showGuideDialog) {
         AppGuideDialog(onDismiss = ::dismissGuideDialog)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(GrayBackground)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-    ) {
-        Spacer(Modifier.height(28.dp))
-        BrandLogo(large = true, modifier = Modifier.align(Alignment.CenterHorizontally))
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "请选择业务功能",
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp, fontWeight = FontWeight.SemiBold),
-            color = Color(0xFF1C1C1E),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(24.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            ModuleCard(
-                title = "瓶装液化石油气隐患排查登记",
-                subtitle = "入户检查、整改、导出",
-                icon = Icons.Default.LocalFireDepartment,
-                color = OrangeAccent,
-                onClick = onNavigateToBottledModule,
-                modifier = Modifier.weight(1f)
-            )
-            ModuleCard(
-                title = "终端隐患核查清单登记",
-                subtitle = "清零核查、项目拍照",
-                icon = Icons.Default.AssignmentTurnedIn,
-                color = BluePrimary,
-                onClick = onNavigateToTerminalModule,
-                modifier = Modifier.weight(1f)
+    Scaffold(
+        containerColor = GrayBackground,
+        bottomBar = {
+            WorkbenchNavigation(
+                onNewInspection = onNavigateToNewTerminal,
+                onRecords = onNavigateToTerminalList,
+                onData = onNavigateToDataManagement
             )
         }
-
-        Spacer(Modifier.height(16.dp))
-        DataManagementEntry(onClick = onNavigateToDataManagement)
-        Spacer(Modifier.height(10.dp))
-        AppGuideEntry(onClick = onNavigateToAppGuide)
-
-        Spacer(Modifier.height(28.dp))
-        FooterText()
-        Spacer(Modifier.height(24.dp))
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp)
+        ) {
+            Spacer(Modifier.height(18.dp))
+            WorkbenchHeader(title = "工作台")
+            Spacer(Modifier.height(14.dp))
+            AccountStrip(
+                account = cloudSettings.userName.ifBlank { "本机模式" },
+                status = if (cloudSettings.isLoggedIn) "云端已连接" else "尚未登录云端",
+                connected = cloudSettings.isLoggedIn
+            )
+            Spacer(Modifier.height(14.dp))
+            TaskOverviewCard(
+                eyebrow = "今日完成",
+                title = "现场检查",
+                value = todayCount,
+                description = if (pendingCount > 0) {
+                    "当前仍有 $pendingCount 条隐患记录等待整改。"
+                } else {
+                    "当前没有待整改记录，继续保持。"
+                }
+            )
+            SectionTitle("业务入口")
+            ActionGrid(
+                actions = listOf(
+                    WorkspaceAction(
+                        title = "终端隐患核查",
+                        subtitle = "现场登记、照片与整改",
+                        icon = Icons.Default.AssignmentTurnedIn,
+                        tint = BrandGreen,
+                        container = BrandGreenSoft,
+                        primary = true,
+                        onClick = onNavigateToTerminalModule
+                    ),
+                    WorkspaceAction(
+                        title = "瓶装气隐患排查",
+                        subtitle = "入户检查与整改",
+                        icon = Icons.Default.LocalFireDepartment,
+                        tint = OrangeAccent,
+                        container = OrangeSoft,
+                        onClick = onNavigateToBottledModule
+                    ),
+                    WorkspaceAction(
+                        title = "数据与云端",
+                        subtitle = "同步、备份和恢复",
+                        icon = Icons.Default.CloudDone,
+                        tint = BluePrimary,
+                        container = BlueLight,
+                        onClick = onNavigateToDataManagement
+                    ),
+                    WorkspaceAction(
+                        title = "版本与说明",
+                        subtitle = "操作指南与版本信息",
+                        icon = Icons.Default.Info,
+                        tint = GraySecondaryText,
+                        container = GraySurface,
+                        onClick = onNavigateToAppGuide
+                    )
+                )
+            )
+            Spacer(Modifier.height(24.dp))
+            FooterText()
+            Spacer(Modifier.height(28.dp))
+        }
     }
 }
 
@@ -167,21 +215,20 @@ fun BottledInspectionHomeScreen(
     val rectifiedCount by viewModel.rectifiedCount.collectAsState(initial = 0)
     val todayCount by viewModel.todayCount.collectAsState(initial = 0)
 
-    ModuleDashboardScaffold(title = "瓶装液化石油气隐患排查登记", onBack = onBack) {
-        BrandHeader("瓶装液化石油气隐患排查登记")
-        StatsRow(
-            values = listOf(
-                StatSpec("总记录", "$totalCount", BluePrimary, Icons.Default.Description),
-                StatSpec("待整改", "$pendingCount", OrangeAccent, Icons.Default.Warning),
-                StatSpec("已整改", "$rectifiedCount", GreenSuccess, Icons.Default.CheckCircle),
-                StatSpec("今日新增", "$todayCount", BluePrimary, Icons.Default.Today)
-            )
+    ModuleDashboardScaffold(title = "瓶装气隐患排查", onBack = onBack) {
+        ModuleIdentity("瓶装液化石油气", "入户检查、隐患登记与整改")
+        TaskOverviewCard(
+            eyebrow = "全部记录",
+            title = "瓶装气检查",
+            value = totalCount,
+            description = "今日新增 $todayCount 条，待整改 $pendingCount 条，已整改 $rectifiedCount 条。"
         )
-        QuickActions(
+        SectionTitle("快捷操作")
+        ActionGrid(
             actions = listOf(
-                ActionSpec("新建检查", Icons.Default.AddCircle, BluePrimary, onNavigateToNew),
-                ActionSpec("记录列表", Icons.AutoMirrored.Filled.List, OrangeAccent, onNavigateToList),
-                ActionSpec("数据导出", Icons.Default.FileDownload, GreenSuccess, onNavigateToExport)
+                WorkspaceAction("新建检查", "开始现场登记", Icons.Default.Add, BrandGreen, BrandGreenSoft, true, onNavigateToNew),
+                WorkspaceAction("记录查询", "查看历史记录", Icons.AutoMirrored.Filled.List, BluePrimary, BlueLight, onClick = onNavigateToList),
+                WorkspaceAction("数据导出", "生成 Excel 文件", Icons.Default.FileDownload, OrangeAccent, OrangeSoft, onClick = onNavigateToExport)
             )
         )
     }
@@ -199,26 +246,29 @@ fun TerminalHazardHomeScreen(
     val totalCount by viewModel.terminalTotalCount.collectAsState(initial = 0)
     val pendingCount by viewModel.terminalPendingCount.collectAsState(initial = 0)
     val todayCount by viewModel.terminalTodayCount.collectAsState(initial = 0)
-    val clearedCount = (totalCount - pendingCount).coerceAtLeast(0)
+    val recentRecords by viewModel.allTerminalRecords.collectAsState(initial = emptyList())
 
-    ModuleDashboardScaffold(title = "终端隐患核查清单登记", onBack = onBack) {
-        BrandHeader("终端隐患核查清单登记")
-        StatsRow(
-            values = listOf(
-                StatSpec("总记录", "$totalCount", BluePrimary, Icons.Default.Description),
-                StatSpec("未清零", "$pendingCount", RedDanger, Icons.Default.Warning),
-                StatSpec("已清零", "$clearedCount", GreenSuccess, Icons.Default.CheckCircle),
-                StatSpec("今日新增", "$todayCount", BluePrimary, Icons.Default.Today)
-            )
+    ModuleDashboardScaffold(title = "终端隐患核查", onBack = onBack) {
+        ModuleIdentity("终端用户隐患核查", "现场检查、照片留证与整改闭环")
+        TaskOverviewCard(
+            eyebrow = "今日完成",
+            title = "现场核查",
+            value = todayCount,
+            description = "累计 $totalCount 条记录，当前有 $pendingCount 条隐患等待整改。"
         )
-        QuickActions(
+        SectionTitle("快捷操作")
+        ActionGrid(
             actions = listOf(
-                ActionSpec("新增核查", Icons.Default.AddCircle, BluePrimary, onNavigateToNew),
-                ActionSpec("清单列表", Icons.AutoMirrored.Filled.List, OrangeAccent, onNavigateToList),
-                ActionSpec("隐患整改", Icons.Default.CheckCircle, RedDanger, onNavigateToRectification),
-                ActionSpec("数据导出", Icons.Default.FileDownload, GreenSuccess, onNavigateToExport)
+                WorkspaceAction("新增检查", "三步完成现场登记", Icons.Default.Add, BrandGreen, BrandGreenSoft, true, onNavigateToNew),
+                WorkspaceAction("记录查询", "查找历史检查记录", Icons.Default.ManageSearch, BluePrimary, BlueLight, onClick = onNavigateToList),
+                WorkspaceAction("待整改", "$pendingCount 条记录需要处理", Icons.Default.Warning, OrangeAccent, OrangeSoft, onClick = onNavigateToRectification),
+                WorkspaceAction("数据导出", "生成 Excel 文件", Icons.Default.FileDownload, GraySecondaryText, GraySurface, onClick = onNavigateToExport)
             )
         )
+        if (recentRecords.isNotEmpty()) {
+            SectionTitle("最近记录")
+            RecentRecordList(recentRecords.take(3), onNavigateToList)
+        }
     }
 }
 
@@ -237,10 +287,10 @@ private fun ModuleDashboardScaffold(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 18.dp)
         ) {
             content()
-            Spacer(Modifier.height(34.dp))
+            Spacer(Modifier.height(28.dp))
             FooterText()
             Spacer(Modifier.height(24.dp))
         }
@@ -248,320 +298,335 @@ private fun ModuleDashboardScaffold(
 }
 
 @Composable
-private fun BrandHeader(title: String) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        BrandLogo(
-            large = true,
-            modifier = Modifier.padding(top = 8.dp, bottom = 14.dp)
-        )
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontSize = 24.sp,
-                lineHeight = 31.sp,
-                fontWeight = FontWeight.SemiBold
-            ),
-            color = Color(0xFF2C2C2E),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-    Spacer(Modifier.height(24.dp))
-}
-
-@Composable
-private fun StatsRow(values: List<StatSpec>) {
+private fun WorkbenchHeader(title: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        values.forEach { spec ->
-            DashboardStatCard(
-                title = spec.title,
-                value = spec.value,
-                color = spec.color,
-                icon = spec.icon,
-                modifier = Modifier.weight(1f)
+        Column {
+            Text(
+                "淮北鑫远燃气",
+                style = MaterialTheme.typography.labelMedium,
+                color = BrandGreen
             )
+            Text(title, style = MaterialTheme.typography.titleLarge, color = InkPrimary)
         }
-    }
-    Spacer(Modifier.height(28.dp))
-}
-
-@Composable
-private fun QuickActions(actions: List<ActionSpec>) {
-    Text(
-        "快捷操作",
-        style = MaterialTheme.typography.labelMedium,
-        color = GraySecondaryText,
-        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        actions.forEach { spec ->
-            DashboardActionCard(
-                title = spec.title,
-                icon = spec.icon,
-                color = spec.color,
-                onClick = spec.onClick,
-                modifier = Modifier.weight(1f)
-            )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(BrandGreen, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("鑫", color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun ModuleCard(
+private fun ModuleIdentity(title: String, description: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        BrandLogo()
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = InkPrimary)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = GraySecondaryText)
+        }
+    }
+}
+
+@Composable
+private fun AccountStrip(account: String, status: String, connected: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BrandGreenSoft, RoundedCornerShape(12.dp))
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column {
+            Text("当前账号", style = MaterialTheme.typography.bodySmall, color = GraySecondaryText)
+            Text(account, style = MaterialTheme.typography.labelMedium, color = BrandGreenStrong)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Icon(
+                if (connected) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                contentDescription = null,
+                tint = if (connected) BrandGreen else GraySecondaryText,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(status, style = MaterialTheme.typography.bodySmall, color = GraySecondaryText)
+        }
+    }
+}
+
+@Composable
+private fun TaskOverviewCard(
+    eyebrow: String,
     title: String,
-    subtitle: String,
-    icon: ImageVector,
-    color: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    value: Int,
+    description: String
 ) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = BrandGreen),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(eyebrow, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.82f))
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+                Text(
+                    value.toString(),
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Color.White
+                )
+            }
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.82f),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleMedium,
+        color = InkPrimary,
+        modifier = Modifier.padding(top = 22.dp, bottom = 10.dp)
+    )
+}
+
+@Composable
+private fun ActionGrid(actions: List<WorkspaceAction>) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        actions.chunked(2).forEach { rowActions ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowActions.forEach { action ->
+                    WorkspaceActionCard(action = action, modifier = Modifier.weight(1f))
+                }
+                if (rowActions.size == 1) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceActionCard(action: WorkspaceAction, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(16.dp)
     Card(
         modifier = modifier
-            .height(206.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            .heightIn(min = 130.dp)
+            .border(
+                width = 1.dp,
+                color = if (action.primary) BrandGreen.copy(alpha = 0.24f) else GraySeparator,
+                shape = shape
+            )
+            .clip(shape)
+            .clickable(onClick = action.onClick),
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = if (action.primary) BrandGreenSoft else Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(70.dp)
-                    .background(color.copy(alpha = 0.12f), RoundedCornerShape(18.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(38.dp))
-            }
-            Spacer(Modifier.height(14.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 23.sp, fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF1C1C1E),
-                textAlign = TextAlign.Center,
-                minLines = 2
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = GraySecondaryText,
-                textAlign = TextAlign.Center,
-                maxLines = 2
-            )
-        }
-    }
-}
-
-@Composable
-private fun DashboardStatCard(
-    title: String,
-    value: String,
-    color: Color,
-    icon: ImageVector,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.height(124.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(28.dp))
-            Text(
-                value,
-                style = MaterialTheme.typography.headlineMedium.copy(fontSize = 31.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
-                color = color,
-                maxLines = 1
-            )
-            Text(
-                title,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 14.sp, lineHeight = 18.sp),
-                color = GraySecondaryText,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(action.container, RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(action.icon, contentDescription = null, tint = action.tint, modifier = Modifier.size(22.dp))
+            }
+            Column(modifier = Modifier.padding(top = 15.dp)) {
+                Text(action.title, style = MaterialTheme.typography.titleMedium, color = InkPrimary)
+                Text(
+                    action.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GraySecondaryText,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun DashboardActionCard(
-    title: String,
-    icon: ImageVector,
-    color: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun RecentRecordList(records: List<TerminalHazardRecord>, onOpenList: () -> Unit) {
+    val dateFormat = remember { SimpleDateFormat("MM-dd", Locale.CHINA) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        records.forEachIndexed { index, record ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenList)
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(GraySurface, RoundedCornerShape(11.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        dateFormat.format(Date(record.inspectionDate)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GraySecondaryText,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        record.customerName.ifBlank { "未命名用户" },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = InkPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        record.customerAddress.ifBlank { record.customerPhone },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GraySecondaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                StatusBadge(TerminalHazardCatalog.displayResult(record))
+            }
+            if (index < records.lastIndex) {
+                androidx.compose.material3.HorizontalDivider(color = GraySeparator)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusBadge(status: String) {
+    val isPending = status == TerminalHazardCatalog.RESULT_NOT_CLEARED
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = if (isPending) OrangeSoft else BrandGreenSoft
+    ) {
+        Text(
+            text = if (isPending) "待整改" else "已完成",
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = if (isPending) OrangeAccent else BrandGreenStrong,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun WorkbenchNavigation(
+    onNewInspection: () -> Unit,
+    onRecords: () -> Unit,
+    onData: () -> Unit
 ) {
-    Card(
-        modifier = modifier
-            .height(122.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    NavigationBar(
+        containerColor = Color.White,
+        tonalElevation = 0.dp,
+        modifier = Modifier.border(1.dp, GraySeparator)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .aspectRatio(1f)
-                    .background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(27.dp))
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF1C1C1E),
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun DataManagementEntry(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(94.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .background(GreenSuccess.copy(alpha = 0.12f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.FileDownload, contentDescription = null, tint = GreenSuccess, modifier = Modifier.size(30.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "数据管理与备份",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFF1C1C1E)
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "备份、恢复、空间优化",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GraySecondaryText
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppGuideEntry(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(94.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .background(BluePrimary.copy(alpha = 0.12f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Info, contentDescription = null, tint = BluePrimary, modifier = Modifier.size(30.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "版本与使用说明",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFF1C1C1E)
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "当前版本 ${BuildConfig.VERSION_NAME}，查看操作说明",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GraySecondaryText
-                )
-            }
-        }
+        val colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = BrandGreen,
+            selectedTextColor = BrandGreen,
+            indicatorColor = BrandGreenSoft,
+            unselectedIconColor = GraySecondaryText,
+            unselectedTextColor = GraySecondaryText
+        )
+        NavigationBarItem(
+            selected = true,
+            onClick = {},
+            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+            label = { Text("首页") },
+            colors = colors
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onNewInspection,
+            icon = { Icon(Icons.Default.Add, contentDescription = null) },
+            label = { Text("登记") },
+            colors = colors
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onRecords,
+            icon = { Icon(Icons.Default.ManageSearch, contentDescription = null) },
+            label = { Text("记录") },
+            colors = colors
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onData,
+            icon = { Icon(Icons.Default.Person, contentDescription = null) },
+            label = { Text("我的") },
+            colors = colors
+        )
     }
 }
 
 @Composable
 private fun FooterText() {
     Text(
-        "淮北鑫远燃气市场部  韩永龙",
-        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium),
-        color = Color(0xFF6B6B70),
+        "淮北鑫远燃气有限公司市场部  韩永龙",
+        style = MaterialTheme.typography.bodySmall,
+        color = GraySecondaryText,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth()
     )
 }
 
-private data class StatSpec(
+private data class WorkspaceAction(
     val title: String,
-    val value: String,
-    val color: Color,
-    val icon: ImageVector
-)
-
-private data class ActionSpec(
-    val title: String,
+    val subtitle: String,
     val icon: ImageVector,
-    val color: Color,
+    val tint: Color,
+    val container: Color,
+    val primary: Boolean = false,
     val onClick: () -> Unit
 )

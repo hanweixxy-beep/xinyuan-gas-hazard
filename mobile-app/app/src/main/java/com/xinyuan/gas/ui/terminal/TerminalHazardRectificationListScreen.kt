@@ -1,6 +1,6 @@
 package com.xinyuan.gas.ui.terminal
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,11 +46,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardRecord
-import com.xinyuan.gas.ui.components.BrandLogo
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
-import com.xinyuan.gas.ui.theme.BluePrimary
+import com.xinyuan.gas.ui.theme.BrandGreen
 import com.xinyuan.gas.ui.theme.GrayBackground
+import com.xinyuan.gas.ui.theme.GraySeparator
 import com.xinyuan.gas.ui.theme.GraySecondaryText
 import com.xinyuan.gas.ui.theme.GrayTertiaryText
 import com.xinyuan.gas.ui.theme.OrangeAccent
@@ -96,12 +96,6 @@ fun TerminalHazardRectificationListScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            BrandLogo(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 6.dp, bottom = 8.dp)
-            )
-
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -117,10 +111,10 @@ fun TerminalHazardRectificationListScreen(
                         }
                     }
                 },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = BluePrimary,
+                    unfocusedBorderColor = GraySeparator,
+                    focusedBorderColor = BrandGreen,
                     unfocusedContainerColor = Color.White,
                     focusedContainerColor = Color.White
                 ),
@@ -181,11 +175,12 @@ private fun PendingRectificationCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -227,7 +222,7 @@ private fun PendingRectificationCard(
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClick) {
-                    Text("去整改", color = BluePrimary)
+                    Text("去整改", color = BrandGreen, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

@@ -55,8 +55,11 @@ fun NavGraph(
 
         composable(Routes.HOME) {
             HomeScreen(
+                viewModel = viewModel,
                 onNavigateToBottledModule = { navController.navigate(Routes.BOTTLED_HOME) },
                 onNavigateToTerminalModule = { navController.navigate(Routes.TERMINAL_HOME) },
+                onNavigateToNewTerminal = { navController.navigate(Routes.NEW_TERMINAL_HAZARD) },
+                onNavigateToTerminalList = { navController.navigate(Routes.TERMINAL_HAZARD_LIST) },
                 onNavigateToDataManagement = { navController.navigate(Routes.DATA_MANAGEMENT) },
                 onNavigateToAppGuide = { navController.navigate(Routes.APP_GUIDE) }
             )

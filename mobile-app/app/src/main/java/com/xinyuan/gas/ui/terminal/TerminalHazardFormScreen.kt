@@ -27,14 +27,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,11 +71,20 @@ import com.xinyuan.gas.ui.components.IOSTextField
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
 import com.xinyuan.gas.ui.theme.BluePrimary
+import com.xinyuan.gas.ui.theme.BrandGreen
+import com.xinyuan.gas.ui.theme.BrandGreenSoft
+import com.xinyuan.gas.ui.theme.BrandGreenStrong
 import com.xinyuan.gas.ui.theme.GrayBackground
 import com.xinyuan.gas.ui.theme.GraySecondaryText
+import com.xinyuan.gas.ui.theme.GraySeparator
+import com.xinyuan.gas.ui.theme.GraySurface
 import com.xinyuan.gas.ui.theme.GrayTertiaryText
 import com.xinyuan.gas.ui.theme.GreenSuccess
+import com.xinyuan.gas.ui.theme.InkPrimary
+import com.xinyuan.gas.ui.theme.OrangeAccent
+import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
+import com.xinyuan.gas.ui.theme.RedSoft
 import com.xinyuan.gas.util.PhotoUtil
 import kotlinx.coroutines.flow.collectLatest
 import java.text.SimpleDateFormat
@@ -109,6 +124,7 @@ fun TerminalHazardFormScreen(
     var deliveryPerson by remember { mutableStateOf("") }
     var remark by remember { mutableStateOf("") }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
+    var currentStep by rememberSaveable(editRecordId) { mutableStateOf(0) }
     val storefrontMissingFields = listOfNotNull(
         "用户名".takeIf { customerName.isBlank() },
         "电话".takeIf { customerPhone.isBlank() },
@@ -315,6 +331,36 @@ fun TerminalHazardFormScreen(
         viewModel.saveTerminalRecord(record)
     }
 
+    fun validateUserAndSiteStep(): Boolean {
+        if (!storefrontWatermarkReady) {
+            Toast.makeText(context, "请先填写${storefrontMissingFields.joinToString("、")}", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (storefrontPhoto.isBlank()) {
+            Toast.makeText(context, "请拍摄门头照片", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (customerAddress.isBlank()) {
+            Toast.makeText(context, "请重新拍摄门头照片获取用户地址", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        return true
+    }
+
+    fun validateHazardStep(): Boolean {
+        if (checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED) {
+            if (selectedHazards.isEmpty()) {
+                Toast.makeText(context, "请选择未清零隐患项目", Toast.LENGTH_SHORT).show()
+                return false
+            }
+            if (selectedHazards.any { hazardPhotos[it].orEmpty().isEmpty() }) {
+                Toast.makeText(context, "每个未清零隐患项目都需要拍照", Toast.LENGTH_SHORT).show()
+                return false
+            }
+        }
+        return true
+    }
+
     LaunchedEffect(Unit) {
         viewModel.terminalSaveResult.collectLatest { result ->
             result.fold(
@@ -333,12 +379,23 @@ fun TerminalHazardFormScreen(
         topBar = {
             IOSTopBar(
                 title = if (editRecordId > 0) "编辑检查" else "新增检查",
-                onBack = onBack,
-                actions = {
-                    TextButton(onClick = { validateAndSave() }) {
-                        Text("保存", color = BluePrimary)
+                onBack = onBack
+            )
+        },
+        bottomBar = {
+            FormActionBar(
+                step = currentStep,
+                onCancel = onBack,
+                onPrevious = { currentStep = (currentStep - 1).coerceAtLeast(0) },
+                onNext = {
+                    val canContinue = when (currentStep) {
+                        0 -> validateUserAndSiteStep()
+                        1 -> validateHazardStep()
+                        else -> true
                     }
-                }
+                    if (canContinue) currentStep = (currentStep + 1).coerceAtMost(2)
+                },
+                onSubmit = { validateAndSave() }
             )
         },
         containerColor = GrayBackground
@@ -347,280 +404,331 @@ fun TerminalHazardFormScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
         ) {
-            FormIntroCard()
-
-            IOSGroupCard(title = "用户信息") {
-                IOSTextField("用户名", customerName, { customerName = it }, required = true)
-                IOSTextField("电话", customerPhone, { customerPhone = it }, keyboardType = KeyboardType.Phone, required = true)
-                IOSDropdownRow(
-                    "用户类型",
-                    customerType,
-                    listOf("居民用户", "商业用户", "餐饮用户", "工业用户", "流动摊贩"),
-                    { customerType = it },
-                    showDivider = false,
-                    required = true
-                )
-            }
-
-            IOSGroupCard(title = "检查信息") {
-                IOSTextField("检查人", inspectorName, { inspectorName = it }, required = true)
-                IOSClickableRow(
-                    label = "检查日期",
-                    value = dateFormat.format(Date(inspectionDate)),
-                    onClick = {
-                        val cal = Calendar.getInstance().apply { timeInMillis = inspectionDate }
-                        DatePickerDialog(context, { _, y, m, d ->
-                            val selected = Calendar.getInstance().apply { set(y, m, d, 0, 0, 0) }
-                            inspectionDate = selected.timeInMillis
-                        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-                    }
-                )
-                IOSTextField("配送员", deliveryPerson, { deliveryPerson = it }, showDivider = false, required = true)
-            }
-
-            IOSGroupCard(title = "门头照片 *") {
-                Text(
-                    text = "请先填写用户、电话、用户类型、检查人、配送员。点击拍照时会自动定位一次，后续照片都使用用户地址。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = GraySecondaryText,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .border(
-                            width = 1.dp,
-                            color = GreenSuccess.copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .background(
-                            color = GreenSuccess.copy(alpha = 0.06f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .padding(12.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "用户地址",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = GreenSuccess
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = customerAddress.ifBlank { "拍摄门头照片时自动记录用户地址" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (customerAddress.isBlank()) GraySecondaryText else Color(0xFF1C1C1E)
-                        )
-                    }
-                }
-                PhotoPickerRow(
-                    title = "拍照",
-                    photoUri = storefrontPhoto,
-                    required = false,
-                    enabled = storefrontWatermarkReady,
-                    helperText = if (storefrontWatermarkReady) {
-                        "拍摄后将写入日期时间、用户电话、检查人和用户地址水印"
-                    } else {
-                        "请先填写：${storefrontMissingFields.joinToString("、")}"
-                    },
-                    onTakePhoto = { takePhoto("storefront") },
-                    onDeletePhoto = {
-                        PhotoUtil.deletePhoto(context, storefrontPhoto)
-                        storefrontPhoto = ""
-                        customerAddress = ""
-                    },
-                    onPreviewPhoto = { previewPhoto = storefrontPhoto }
-                )
-            }
-
-            IOSGroupCard(title = "检查结果") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    listOf(
-                        TerminalHazardCatalog.RESULT_CLEARED to GreenSuccess,
-                        TerminalHazardCatalog.RESULT_NOT_CLEARED to RedDanger
-                    ).forEach { (result, color) ->
-                        FilterChip(
-                            selected = checkResult == result,
-                            onClick = { setResult(result) },
-                            label = { Text(result) },
-                            modifier = Modifier.weight(1f),
-                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = color.copy(alpha = 0.14f),
-                                selectedLabelColor = color
+            InspectionStepper(currentStep)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp)
+            ) {
+                when (currentStep) {
+                    0 -> {
+                        FormIntroCard()
+                        IOSGroupCard(title = "用户信息") {
+                            IOSTextField("用户名称", customerName, { customerName = it }, required = true)
+                            IOSTextField(
+                                "联系电话",
+                                customerPhone,
+                                { customerPhone = it },
+                                keyboardType = KeyboardType.Phone,
+                                required = true
                             )
-                        )
-                    }
-                }
-            }
+                            IOSDropdownRow(
+                                "用户类型",
+                                customerType,
+                                listOf("居民用户", "商业用户", "餐饮用户", "工业用户", "流动摊贩"),
+                                { customerType = it },
+                                showDivider = false,
+                                required = true
+                            )
+                        }
 
-            if (checkResult == TerminalHazardCatalog.RESULT_CLEARED) {
-                IOSGroupCard(title = "未清零隐患项目") {
-                    Text(
-                        text = "当前为“隐患已清零”。继续登记气源排查、钢瓶照片和备注后即可保存。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = GraySecondaryText,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-            } else if (checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED) {
-                TerminalHazardCatalog.categories.forEach { category ->
-                    IOSGroupCard(title = category) {
-                        TerminalHazardCatalog.items.filter { it.category == category }.forEachIndexed { index, item ->
-                            Column {
+                        IOSGroupCard(title = "检查信息") {
+                            IOSTextField("检查人", inspectorName, { inspectorName = it }, required = true)
+                            IOSClickableRow(
+                                label = "检查日期",
+                                value = dateFormat.format(Date(inspectionDate)),
+                                onClick = {
+                                    val cal = Calendar.getInstance().apply { timeInMillis = inspectionDate }
+                                    DatePickerDialog(context, { _, y, m, d ->
+                                        val selected = Calendar.getInstance().apply { set(y, m, d, 0, 0, 0) }
+                                        inspectionDate = selected.timeInMillis
+                                    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                                }
+                            )
+                            IOSTextField(
+                                "配送员",
+                                deliveryPerson,
+                                { deliveryPerson = it },
+                                showDivider = false,
+                                required = true
+                            )
+                        }
+
+                        IOSGroupCard(title = "现场信息") {
+                            LocationCard(customerAddress)
+                            Text(
+                                text = "先填写上方必填信息，再拍门头照片。照片会写入日期时间、用户电话、检查人和用户地址水印。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GraySecondaryText,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            )
+                            PhotoPickerRow(
+                                title = "门头照片",
+                                photoUri = storefrontPhoto,
+                                required = true,
+                                enabled = storefrontWatermarkReady,
+                                helperText = if (storefrontWatermarkReady) {
+                                    "拍摄时自动获取用户地址与经纬度"
+                                } else {
+                                    "请先填写：${storefrontMissingFields.joinToString("、")}"
+                                },
+                                onTakePhoto = { takePhoto("storefront") },
+                                onDeletePhoto = {
+                                    PhotoUtil.deletePhoto(context, storefrontPhoto)
+                                    storefrontPhoto = ""
+                                    customerAddress = ""
+                                },
+                                onPreviewPhoto = { previewPhoto = storefrontPhoto }
+                            )
+                        }
+                    }
+
+                    1 -> {
+                        IOSGroupCard(title = "检查结论") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                ResultChoice(
+                                    text = TerminalHazardCatalog.RESULT_CLEARED,
+                                    selected = checkResult == TerminalHazardCatalog.RESULT_CLEARED,
+                                    color = BrandGreen,
+                                    softColor = BrandGreenSoft,
+                                    onClick = { setResult(TerminalHazardCatalog.RESULT_CLEARED) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                ResultChoice(
+                                    text = "发现隐患",
+                                    selected = checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED,
+                                    color = OrangeAccent,
+                                    softColor = OrangeSoft,
+                                    onClick = { setResult(TerminalHazardCatalog.RESULT_NOT_CLEARED) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        if (checkResult == TerminalHazardCatalog.RESULT_CLEARED) {
+                            IOSGroupCard(title = "隐患项目") {
+                                Text(
+                                    text = "本次检查未发现需要登记的未清零隐患。",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = GraySecondaryText,
+                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                                )
+                            }
+                        } else {
+                            TerminalHazardCatalog.categories.forEach { category ->
+                                IOSGroupCard(title = category) {
+                                    TerminalHazardCatalog.items
+                                        .filter { it.category == category }
+                                        .forEach { item ->
+                                            val selected = item.code in selectedHazards
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                                                    .border(
+                                                        1.dp,
+                                                        if (selected) OrangeAccent.copy(alpha = 0.35f) else GraySeparator,
+                                                        RoundedCornerShape(11.dp)
+                                                    )
+                                                    .background(
+                                                        if (selected) OrangeSoft else Color.White,
+                                                        RoundedCornerShape(11.dp)
+                                                    )
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { setHazardSelected(item.code, !selected) }
+                                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Checkbox(
+                                                        checked = selected,
+                                                        onCheckedChange = { checked -> setHazardSelected(item.code, checked) }
+                                                    )
+                                                    Text(
+                                                        item.name,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                                        ),
+                                                        color = InkPrimary,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
+                                                if (selected) {
+                                                    MultiPhotoPickerRow(
+                                                        title = "项目照片（可多张）",
+                                                        photos = hazardPhotos[item.code].orEmpty(),
+                                                        required = true,
+                                                        onTakePhoto = { takePhoto(item.code) },
+                                                        onDeletePhoto = { photo ->
+                                                            PhotoUtil.deletePhoto(context, photo)
+                                                            val remaining = hazardPhotos[item.code].orEmpty() - photo
+                                                            hazardPhotos = if (remaining.isEmpty()) {
+                                                                hazardPhotos - item.code
+                                                            } else {
+                                                                hazardPhotos + (item.code to remaining)
+                                                            }
+                                                        },
+                                                        onPreviewPhoto = { previewPhoto = it },
+                                                        compact = true
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    Spacer(Modifier.height(11.dp))
+                                }
+                            }
+                        }
+
+                        IOSGroupCard(title = "气源排查") {
+                            Text(
+                                "如发现异常请选择对应项目；无异常可以直接继续。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GraySecondaryText,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                            TerminalHazardCatalog.gasSourceIssues.forEach { issue ->
+                                val selected = issue in gasSourceIssues
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                                        .clip(RoundedCornerShape(11.dp))
+                                        .background(if (selected) OrangeSoft else Color.Transparent)
+                                        .clickable {
+                                            gasSourceIssues = if (selected) gasSourceIssues - issue else gasSourceIssues + issue
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Checkbox(
-                                        checked = item.code in selectedHazards,
-                                        onCheckedChange = { checked -> setHazardSelected(item.code, checked) }
+                                        checked = selected,
+                                        onCheckedChange = { checked ->
+                                            gasSourceIssues = if (checked) gasSourceIssues + issue else gasSourceIssues - issue
+                                        }
                                     )
-                                    Text(
-                                        item.name,
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        color = Color(0xFF1C1C1E),
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                    Text(issue, style = MaterialTheme.typography.bodyMedium, color = InkPrimary)
                                 }
-                                if (item.code in selectedHazards) {
-                                    MultiPhotoPickerRow(
-                                        title = "项目照片（可多张）",
-                                        photos = hazardPhotos[item.code].orEmpty(),
-                                        required = true,
-                                        onTakePhoto = { takePhoto(item.code) },
-                                        onDeletePhoto = { photo ->
-                                            PhotoUtil.deletePhoto(context, photo)
-                                            val remaining = hazardPhotos[item.code].orEmpty() - photo
-                                            hazardPhotos = if (remaining.isEmpty()) {
-                                                hazardPhotos - item.code
-                                            } else {
-                                                hazardPhotos + (item.code to remaining)
-                                            }
-                                        },
-                                        onPreviewPhoto = { previewPhoto = it },
-                                        compact = true
-                                    )
+                            }
+                            MultiPhotoPickerRow(
+                                title = "钢瓶二维码照片",
+                                photos = cylinderQrPhotos,
+                                onTakePhoto = { takePhoto("cylinder_qr") },
+                                onPreviewPhoto = { previewPhoto = it },
+                                onDeletePhoto = { photo ->
+                                    PhotoUtil.deletePhoto(context, photo)
+                                    cylinderQrPhotos = cylinderQrPhotos - photo
                                 }
-                                if (index < TerminalHazardCatalog.items.count { it.category == category } - 1) {
-                                    androidx.compose.material3.HorizontalDivider(
-                                        modifier = Modifier.padding(start = 16.dp),
-                                        color = com.xinyuan.gas.ui.theme.GraySeparator.copy(alpha = 0.3f),
-                                        thickness = 0.5.dp
-                                    )
+                            )
+                            MultiPhotoPickerRow(
+                                title = "钢瓶照片",
+                                photos = cylinderPhotos,
+                                onTakePhoto = { takePhoto("cylinder") },
+                                onPreviewPhoto = { previewPhoto = it },
+                                onDeletePhoto = { photo ->
+                                    PhotoUtil.deletePhoto(context, photo)
+                                    cylinderPhotos = cylinderPhotos - photo
                                 }
+                            )
+                        }
+
+                        IOSGroupCard(title = "备注") {
+                            OutlinedTextField(
+                                value = remark,
+                                onValueChange = { remark = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                                    .heightIn(min = 88.dp),
+                                placeholder = { Text("补充说明，选填", color = GrayTertiaryText) },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedBorderColor = GraySeparator,
+                                    focusedBorderColor = BrandGreen,
+                                    cursorColor = BrandGreen
+                                )
+                            )
+                        }
+                    }
+
+                    else -> {
+                        IOSGroupCard(title = "用户与现场") {
+                            SummaryRow("用户", "$customerName · $customerType")
+                            SummaryRow("电话", customerPhone)
+                            SummaryRow("地址", customerAddress)
+                            SummaryRow("检查日期", dateFormat.format(Date(inspectionDate)), showDivider = false)
+                        }
+                        IOSGroupCard(title = "检查结果") {
+                            SummaryRow(
+                                "结论",
+                                if (checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED) {
+                                    "发现 ${selectedHazards.size} 项隐患"
+                                } else {
+                                    TerminalHazardCatalog.RESULT_CLEARED
+                                },
+                                valueColor = if (checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED) {
+                                    OrangeAccent
+                                } else {
+                                    BrandGreenStrong
+                                }
+                            )
+                            SummaryRow("检查人", inspectorName)
+                            SummaryRow("配送员", deliveryPerson)
+                            SummaryRow(
+                                "现场照片",
+                                "门头 1 张 · 隐患 ${hazardPhotos.values.sumOf { it.size }} 张 · 钢瓶 ${cylinderQrPhotos.size + cylinderPhotos.size} 张",
+                                showDivider = false
+                            )
+                        }
+                        if (selectedHazards.isNotEmpty()) {
+                            IOSGroupCard(title = "隐患项目") {
+                                TerminalHazardCatalog.items
+                                    .filter { it.code in selectedHazards }
+                                    .forEachIndexed { index, item ->
+                                        SummaryRow(
+                                            label = "${index + 1}",
+                                            value = item.name,
+                                            showDivider = index < selectedHazards.size - 1,
+                                            valueColor = OrangeAccent
+                                        )
+                                    }
+                            }
+                        }
+                        IOSGroupCard(title = "提交说明") {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .background(BrandGreenSoft, RoundedCornerShape(9.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("云", color = BrandGreen, fontWeight = FontWeight.Bold)
+                                }
+                                Text(
+                                    "记录会先保存在本机；已登录云端时自动上传，网络异常时保留为待上传。",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = GraySecondaryText,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
                 }
+                Spacer(Modifier.height(28.dp))
             }
-
-            IOSGroupCard(modifier = Modifier.padding(top = 16.dp)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                        .border(
-                            width = 1.dp,
-                            color = BluePrimary.copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .background(
-                            color = BluePrimary.copy(alpha = 0.06f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "气源排查登记（如有异常需登记）",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = BluePrimary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                TerminalHazardCatalog.gasSourceIssues.forEachIndexed { index, issue ->
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = issue in gasSourceIssues,
-                                onCheckedChange = { checked ->
-                                    gasSourceIssues = if (checked) gasSourceIssues + issue else gasSourceIssues - issue
-                                }
-                            )
-                            Text(
-                                issue,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = Color(0xFF1C1C1E),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        if (index < TerminalHazardCatalog.gasSourceIssues.lastIndex) {
-                            androidx.compose.material3.HorizontalDivider(
-                                modifier = Modifier.padding(start = 16.dp),
-                                color = com.xinyuan.gas.ui.theme.GraySeparator.copy(alpha = 0.3f),
-                                thickness = 0.5.dp
-                            )
-                        }
-                    }
-                }
-                MultiPhotoPickerRow(
-                    title = "钢瓶二维码拍照",
-                    photos = cylinderQrPhotos,
-                    onTakePhoto = { takePhoto("cylinder_qr") },
-                    onPreviewPhoto = { previewPhoto = it },
-                    onDeletePhoto = { photo ->
-                        PhotoUtil.deletePhoto(context, photo)
-                        cylinderQrPhotos = cylinderQrPhotos - photo
-                    }
-                )
-                MultiPhotoPickerRow(
-                    title = "钢瓶拍照",
-                    photos = cylinderPhotos,
-                    onTakePhoto = { takePhoto("cylinder") },
-                    onPreviewPhoto = { previewPhoto = it },
-                    onDeletePhoto = { photo ->
-                        PhotoUtil.deletePhoto(context, photo)
-                        cylinderPhotos = cylinderPhotos - photo
-                    }
-                )
-            }
-
-            IOSGroupCard(title = "备注") {
-                OutlinedTextField(
-                    value = remark,
-                    onValueChange = { remark = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .heightIn(min = 80.dp),
-                    placeholder = { Text("请输入备注信息", color = GrayTertiaryText) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedBorderColor = Color.Transparent
-                    )
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-            IOSPrimaryButton("保存核查记录", onClick = { validateAndSave() })
-            Spacer(Modifier.height(32.dp))
         }
     }
 
@@ -648,24 +756,241 @@ fun TerminalHazardFormScreen(
 }
 
 @Composable
+private fun InspectionStepper(currentStep: Int) {
+    val steps = listOf("用户与现场", "核查与照片", "确认提交")
+    Surface(
+        color = Color.White,
+        shadowElevation = 0.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, GraySeparator)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                steps.forEachIndexed { index, _ ->
+                    val complete = index < currentStep
+                    val active = index == currentStep
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(26.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (index > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .fillMaxWidth(0.5f)
+                                    .height(2.dp)
+                                    .background(if (index <= currentStep) BrandGreen else GraySeparator)
+                            )
+                        }
+                        if (index < steps.lastIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .fillMaxWidth(0.5f)
+                                    .height(2.dp)
+                                    .background(if (index < currentStep) BrandGreen else GraySeparator)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .background(
+                                    if (complete || active) BrandGreen else GraySurface,
+                                    androidx.compose.foundation.shape.CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (complete) "✓" else "${index + 1}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (complete || active) Color.White else GrayTertiaryText
+                            )
+                        }
+                    }
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                steps.forEachIndexed { index, label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = if (index == currentStep) FontWeight.SemiBold else FontWeight.Normal
+                        ),
+                        color = if (index <= currentStep) BrandGreen else GrayTertiaryText,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormActionBar(
+    step: Int,
+    onCancel: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    Surface(
+        color = Color.White,
+        shadowElevation = 6.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = if (step == 0) onCancel else onPrevious,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, GraySeparator),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandGreenStrong)
+            ) {
+                Text(if (step == 0) "取消" else if (step == 2) "返回修改" else "上一步")
+            }
+            Button(
+                onClick = if (step == 2) onSubmit else onNext,
+                modifier = Modifier
+                    .weight(2f)
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+            ) {
+                Text(if (step == 2) "提交记录" else "下一步", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocationCard(address: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .background(BrandGreenSoft, RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(Color.White, RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("位", color = BrandGreen, fontWeight = FontWeight.Bold)
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                if (address.isBlank()) "等待获取用户地址" else "已获取用户地址",
+                style = MaterialTheme.typography.labelMedium,
+                color = InkPrimary
+            )
+            Text(
+                address.ifBlank { "拍摄门头照片后自动记录定位地址" },
+                style = MaterialTheme.typography.bodySmall,
+                color = GraySecondaryText,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ResultChoice(
+    text: String,
+    selected: Boolean,
+    color: Color,
+    softColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .heightIn(min = 50.dp)
+            .border(
+                1.dp,
+                if (selected) color.copy(alpha = 0.55f) else GraySeparator,
+                RoundedCornerShape(12.dp)
+            )
+            .background(if (selected) softColor else Color.White, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) color else GraySecondaryText,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun SummaryRow(
+    label: String,
+    value: String,
+    showDivider: Boolean = true,
+    valueColor: Color = InkPrimary
+) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = GraySecondaryText,
+                modifier = Modifier.size(width = 74.dp, height = 24.dp)
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = valueColor,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (showDivider) {
+            HorizontalDivider(color = GraySeparator)
+        }
+    }
+}
+
+@Composable
 private fun FormIntroCard() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp, bottom = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(GreenSuccess.copy(alpha = 0.08f))
+            .clip(RoundedCornerShape(12.dp))
+            .background(BrandGreenSoft)
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Column {
             Text(
                 text = "新增终端核查",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF1C1C1E)
+                color = InkPrimary
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "按 APP 版“终端隐患核查清单登记”录入，保存后写入云端并按公司隔离。",
+                text = "按三步完成现场登记，门头照片会自动写入用户地址与检查信息。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = GraySecondaryText
             )

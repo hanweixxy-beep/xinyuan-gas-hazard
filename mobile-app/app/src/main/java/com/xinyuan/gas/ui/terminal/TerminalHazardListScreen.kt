@@ -1,7 +1,7 @@
 package com.xinyuan.gas.ui.terminal
 
 import android.app.DatePickerDialog
-import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -52,11 +53,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardRecord
-import com.xinyuan.gas.ui.components.BrandLogo
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
-import com.xinyuan.gas.ui.theme.BluePrimary
+import com.xinyuan.gas.ui.theme.BrandGreen
+import com.xinyuan.gas.ui.theme.BrandGreenSoft
 import com.xinyuan.gas.ui.theme.GrayBackground
+import com.xinyuan.gas.ui.theme.GraySeparator
 import com.xinyuan.gas.ui.theme.GraySecondaryText
 import com.xinyuan.gas.ui.theme.GrayTertiaryText
 import com.xinyuan.gas.ui.theme.GreenSuccess
@@ -84,9 +86,10 @@ fun TerminalHazardListScreen(
     var customerPhone by remember { mutableStateOf("") }
     var inspectorName by remember { mutableStateOf("") }
     var deliveryPerson by remember { mutableStateOf("") }
+    var keyword by remember { mutableStateOf("") }
     var filtersExpanded by remember { mutableStateOf(false) }
 
-    val records = remember(allRecords, status, startDate, endDate, customerName, customerPhone, inspectorName, deliveryPerson) {
+    val records = remember(allRecords, status, startDate, endDate, customerName, customerPhone, inspectorName, deliveryPerson, keyword) {
         allRecords.filterTerminalRecords(
             status = status,
             startDate = startDate,
@@ -94,7 +97,8 @@ fun TerminalHazardListScreen(
             customerName = customerName,
             customerPhone = customerPhone,
             inspectorName = inspectorName,
-            deliveryPerson = deliveryPerson
+            deliveryPerson = deliveryPerson,
+            keyword = keyword
         )
     }
 
@@ -106,6 +110,7 @@ fun TerminalHazardListScreen(
         customerPhone = ""
         inspectorName = ""
         deliveryPerson = ""
+        keyword = ""
     }
 
     Scaffold(
@@ -127,13 +132,9 @@ fun TerminalHazardListScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            BrandLogo(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 6.dp, bottom = 8.dp)
-            )
-
             FilterPanel(
+                keyword = keyword,
+                onKeywordChange = { keyword = it },
                 status = status,
                 onStatusChange = { status = it },
                 startDate = startDate,
@@ -191,6 +192,8 @@ fun TerminalHazardListScreen(
 
 @Composable
 private fun FilterPanel(
+    keyword: String,
+    onKeywordChange: (String) -> Unit,
     status: String,
     onStatusChange: (String) -> Unit,
     startDate: Long,
@@ -223,12 +226,31 @@ private fun FilterPanel(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            OutlinedTextField(
+                value = keyword,
+                onValueChange = onKeywordChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("搜索用户、电话或地址", color = GrayTertiaryText) },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = GraySecondaryText)
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = GraySeparator,
+                    focusedBorderColor = BrandGreen,
+                    unfocusedContainerColor = GrayBackground,
+                    focusedContainerColor = Color.White
+                )
+            )
+            Spacer(Modifier.height(10.dp))
             listOf(
                 listOf(
                     "" to "全部",
@@ -258,8 +280,8 @@ private fun FilterPanel(
                             },
                             modifier = Modifier.weight(1f),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BluePrimary.copy(alpha = 0.12f),
-                                selectedLabelColor = BluePrimary
+                                selectedContainerColor = BrandGreenSoft,
+                                selectedLabelColor = BrandGreen
                             )
                         )
                     }
@@ -271,7 +293,7 @@ private fun FilterPanel(
                 TextButton(onClick = { onExpandedChange(!expanded) }) {
                     Text(
                         if (expanded) "收起筛选" else if (extraFilterCount > 0) "更多筛选($extraFilterCount)" else "更多筛选",
-                        color = BluePrimary
+                        color = BrandGreen
                     )
                 }
                 if (extraFilterCount > 0 || status.isNotBlank()) {
@@ -340,7 +362,7 @@ private fun SmallFilterField(
         shape = RoundedCornerShape(10.dp),
         colors = OutlinedTextFieldDefaults.colors(
             unfocusedBorderColor = Color.Transparent,
-            focusedBorderColor = BluePrimary,
+            focusedBorderColor = BrandGreen,
             unfocusedContainerColor = GrayBackground.copy(alpha = 0.75f),
             focusedContainerColor = GrayBackground.copy(alpha = 0.75f)
         )
@@ -352,7 +374,7 @@ private fun TerminalHazardRecordCard(
     record: TerminalHazardRecord,
     onClick: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
+    val timeFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.CHINA) }
     val displayResult = TerminalHazardCatalog.displayResult(record)
     val isPending = record.checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED
     val statusColor = when (displayResult) {
@@ -366,11 +388,12 @@ private fun TerminalHazardRecordCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -411,7 +434,7 @@ private fun TerminalHazardRecordCard(
             Spacer(Modifier.height(6.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("检查人：${record.inspectorName}", style = MaterialTheme.typography.bodySmall, color = GraySecondaryText)
-                Text(dateFormat.format(Date(record.inspectionDate)), style = MaterialTheme.typography.bodySmall, color = GraySecondaryText)
+                Text(timeFormat.format(Date(record.inspectionDate)), style = MaterialTheme.typography.bodySmall, color = GraySecondaryText)
             }
             if (isPending || displayResult == TerminalHazardCatalog.RESULT_RECTIFIED_LATER) {
                 Spacer(Modifier.height(6.dp))
@@ -424,7 +447,7 @@ private fun TerminalHazardRecordCard(
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClick) {
-                    Text("查看详情", color = BluePrimary)
+                    Text("查看详情", color = BrandGreen, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -438,15 +461,22 @@ internal fun List<TerminalHazardRecord>.filterTerminalRecords(
     customerName: String,
     customerPhone: String,
     inspectorName: String,
-    deliveryPerson: String
+    deliveryPerson: String,
+    keyword: String = ""
 ): List<TerminalHazardRecord> {
     fun String.matchesFilter(filter: String): Boolean =
         filter.isBlank() || contains(filter.trim(), ignoreCase = true)
 
     return filter { record ->
+        val normalizedKeyword = keyword.trim()
+        val matchesKeyword = normalizedKeyword.isBlank() ||
+            record.customerName.contains(normalizedKeyword, ignoreCase = true) ||
+            record.customerPhone.contains(normalizedKeyword, ignoreCase = true) ||
+            record.customerAddress.contains(normalizedKeyword, ignoreCase = true)
         (status.isBlank() || TerminalHazardCatalog.displayResult(record) == status) &&
             (startDate == 0L || record.inspectionDate >= startDate) &&
             (endDate == 0L || record.inspectionDate <= endDate) &&
+            matchesKeyword &&
             record.customerName.matchesFilter(customerName) &&
             record.customerPhone.matchesFilter(customerPhone) &&
             record.inspectorName.matchesFilter(inspectorName) &&

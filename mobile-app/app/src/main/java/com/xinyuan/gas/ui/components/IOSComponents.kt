@@ -1,8 +1,8 @@
 package com.xinyuan.gas.ui.components
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,12 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xinyuan.gas.R
 import com.xinyuan.gas.ui.theme.*
 
 @Composable
@@ -31,50 +29,73 @@ fun BrandLogo(
     modifier: Modifier = Modifier,
     large: Boolean = false
 ) {
-    Image(
-        painter = painterResource(R.drawable.logo_xinyuan),
-        contentDescription = "淮北鑫远燃气有限公司",
-        modifier = modifier
-            .width(if (large) 212.dp else 150.dp)
-            .height(if (large) 122.dp else 86.dp),
-        contentScale = ContentScale.Fit
-    )
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (large) 14.dp else 10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(if (large) 56.dp else 44.dp)
+                .background(BrandGreen, RoundedCornerShape(if (large) 16.dp else 12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "鑫",
+                color = Color.White,
+                fontSize = if (large) 24.sp else 19.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Column {
+            Text(
+                text = "淮北鑫远燃气",
+                style = MaterialTheme.typography.titleMedium,
+                color = InkPrimary
+            )
+            Text(
+                text = "隐患排查系统",
+                style = MaterialTheme.typography.bodySmall,
+                color = GraySecondaryText
+            )
+        }
+    }
 }
 
-// iOS风格分组卡片
 @Composable
 fun IOSGroupCard(
     modifier: Modifier = Modifier,
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        if (title != null) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = GraySecondaryText,
-                modifier = Modifier.padding(start = 16.dp, bottom = 6.dp, top = 16.dp)
-            )
-        }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    val shape = RoundedCornerShape(16.dp)
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .border(1.dp, GraySeparator, shape),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize()
-            ) {
-                content()
+            if (title != null) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = InkPrimary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp)
+                )
             }
+            content()
         }
     }
 }
 
-// iOS风格文本输入行
 @Composable
 fun IOSTextField(
     label: String,
@@ -87,57 +108,90 @@ fun IOSTextField(
     singleLine: Boolean = true,
     minLines: Int = 1
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 4.dp, bottom = if (showDivider) 10.dp else 16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = GraySecondaryText
+            )
+            if (required) {
+                Text(" *", color = RedDanger, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(modifier = Modifier.width(80.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (required) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .background(Color.Red, CircleShape)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                .defaultMinSize(minHeight = 50.dp),
+            textStyle = MaterialTheme.typography.bodyLarge,
+            singleLine = singleLine,
+            minLines = minLines,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = GraySeparator,
+                focusedBorderColor = BrandGreen,
+                unfocusedContainerColor = Color.White,
+                focusedContainerColor = Color.White,
+                cursorColor = BrandGreen
+            ),
+            placeholder = {
+                Text("请输入$label", color = GrayTertiaryText, style = MaterialTheme.typography.bodyMedium)
             }
-            OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodyLarge,
-                singleLine = singleLine,
-                minLines = minLines,
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedContainerColor = Color.Transparent
-                ),
-                placeholder = {
-                    Text("请输入$label", color = GrayTertiaryText, fontSize = 15.sp)
-                }
-            )
-        }
-        if (showDivider) {
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 16.dp),
-                color = GraySeparator.copy(alpha = 0.3f),
-                thickness = 0.5.dp
-            )
+        )
+    }
+}
+
+@Composable
+private fun FieldLabel(label: String, required: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = GraySecondaryText)
+        if (required) {
+            Text(" *", color = RedDanger, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
 
-// iOS风格下拉选择行
+@Composable
+private fun SelectionShell(
+    value: String,
+    placeholder: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 50.dp)
+            .border(1.dp, GraySeparator, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = value.ifEmpty { placeholder },
+            color = if (value.isEmpty()) GrayTertiaryText else InkPrimary,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f)
+        )
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = GrayTertiaryText,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+// 下拉和可点击字段沿用旧函数名，内部采用新规范的纵向表单布局。
 @Composable
 fun IOSDropdownRow(
     label: String,
@@ -148,55 +202,51 @@ fun IOSDropdownRow(
     required: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(modifier = Modifier.width(80.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (required) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .background(Color.Red, CircleShape)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 4.dp, bottom = if (showDivider) 10.dp else 16.dp)
+    ) {
+        FieldLabel(label, required)
+        Spacer(Modifier.height(6.dp))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            SelectionShell(value = value, placeholder = "请选择$label", onClick = { expanded = true })
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.fillMaxWidth(0.82f)
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onSelect(option)
+                            expanded = false
+                        }
                     )
-                    Spacer(Modifier.width(4.dp))
                 }
-                Text(label, style = MaterialTheme.typography.bodyLarge)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = value.ifEmpty { "请选择" },
-                    color = if (value.isEmpty()) GrayTertiaryText else MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = GrayTertiaryText,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = { onSelect(option); expanded = false }
-                )
-            }
-        }
-        if (showDivider) {
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 16.dp),
-                color = GraySeparator.copy(alpha = 0.3f),
-                thickness = 0.5.dp
-            )
-        }
+    }
+}
+
+@Composable
+fun IOSClickableRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    showDivider: Boolean = true
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 4.dp, bottom = if (showDivider) 10.dp else 16.dp)
+    ) {
+        FieldLabel(label, false)
+        Spacer(Modifier.height(6.dp))
+        SelectionShell(value = value, placeholder = "请选择$label", onClick = onClick)
     }
 }
 
@@ -212,7 +262,8 @@ fun IOSSwitchRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .heightIn(min = 52.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -221,7 +272,7 @@ fun IOSSwitchRow(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
-                    checkedTrackColor = GreenSuccess,
+                    checkedTrackColor = BrandGreen,
                     checkedThumbColor = Color.White
                 )
             )
@@ -229,51 +280,8 @@ fun IOSSwitchRow(
         if (showDivider) {
             HorizontalDivider(
                 modifier = Modifier.padding(start = 16.dp),
-                color = GraySeparator.copy(alpha = 0.3f),
-                thickness = 0.5.dp
-            )
-        }
-    }
-}
-
-// 可点击行
-@Composable
-fun IOSClickableRow(
-    label: String,
-    value: String,
-    onClick: () -> Unit,
-    showDivider: Boolean = true
-) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.width(80.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = value.ifEmpty { "请选择" },
-                    color = if (value.isEmpty()) GrayTertiaryText else MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = GrayTertiaryText,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-        if (showDivider) {
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 16.dp),
-                color = GraySeparator.copy(alpha = 0.3f),
-                thickness = 0.5.dp
+                color = GraySeparator,
+                thickness = 1.dp
             )
         }
     }
@@ -286,7 +294,7 @@ fun IOSPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    color: Color = BluePrimary
+    color: Color = BrandGreen
 ) {
     Button(
         onClick = onClick,
@@ -297,7 +305,7 @@ fun IOSPrimaryButton(
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(containerColor = color)
     ) {
-        Text(text, fontSize = 17.sp)
+        Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -311,20 +319,28 @@ fun IOSTopBar(
 ) {
     TopAppBar(
         title = {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium, color = InkPrimary)
         },
         navigationIcon = {
             if (onBack != null) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = BluePrimary)
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(40.dp)
+                        .background(GraySurface, RoundedCornerShape(12.dp))
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = InkPrimary)
                 }
             }
         },
         actions = actions,
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = GrayBackground,
-            titleContentColor = Color(0xFF1C1C1E)
-        )
+            containerColor = Color.White,
+            titleContentColor = InkPrimary,
+            actionIconContentColor = InkPrimary
+        ),
+        modifier = Modifier.border(width = 0.dp, color = Color.Transparent)
     )
 }
 
@@ -338,10 +354,10 @@ fun StatCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.border(1.dp, GraySeparator, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -367,11 +383,12 @@ fun QuickActionButton(
 ) {
     Card(
         modifier = modifier
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
@@ -402,11 +419,12 @@ fun RecordCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(

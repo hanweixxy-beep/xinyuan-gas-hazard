@@ -1,5 +1,6 @@
 package com.xinyuan.gas.ui.terminal
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -39,12 +41,15 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardRecord
-import com.xinyuan.gas.ui.components.BrandLogo
 import com.xinyuan.gas.ui.components.IOSGroupCard
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
+import com.xinyuan.gas.ui.theme.BrandGreen
 import com.xinyuan.gas.ui.theme.GrayBackground
+import com.xinyuan.gas.ui.theme.GraySeparator
 import com.xinyuan.gas.ui.theme.GraySecondaryText
+import com.xinyuan.gas.ui.theme.GrayTertiaryText
+import com.xinyuan.gas.ui.theme.InkPrimary
 import com.xinyuan.gas.ui.theme.GreenSuccess
 import com.xinyuan.gas.ui.theme.OrangeAccent
 import com.xinyuan.gas.ui.theme.RedDanger
@@ -90,21 +95,14 @@ fun TerminalHazardDetailScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp)
             ) {
-                BrandLogo(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 8.dp, bottom = 12.dp)
-                )
+                Spacer(Modifier.height(12.dp))
+                DetailHero(current)
 
-                IOSGroupCard(title = "用户信息") {
+                IOSGroupCard(title = "现场信息") {
                     ReadOnlyRow("用户名", current.customerName)
-                    PhotoStrip("门头照片", listOf(current.storefrontPhoto), onPreviewPhoto = { previewPhoto = it })
                     ReadOnlyRow("电话", current.customerPhone)
                     ReadOnlyRow("用户类型", current.customerType)
-                    ReadOnlyRow("地址", current.customerAddress.ifBlank { "地址未填写" }, showDivider = false)
-                }
-
-                IOSGroupCard(title = "检查信息") {
+                    ReadOnlyRow("地址", current.customerAddress.ifBlank { "地址未填写" })
                     ReadOnlyRow("检查人", current.inspectorName)
                     ReadOnlyRow("配送员", current.deliveryPerson)
                     ReadOnlyRow("检查日期", dateFormat.format(Date(current.inspectionDate)))
@@ -113,6 +111,17 @@ fun TerminalHazardDetailScreen(
 
                 HazardInfo(current, onPreviewPhoto = { previewPhoto = it })
                 GasSourceInfo(current, onPreviewPhoto = { previewPhoto = it })
+                IOSGroupCard(title = "现场照片") {
+                    PhotoStrip("门头照片", listOf(current.storefrontPhoto), onPreviewPhoto = { previewPhoto = it })
+                    if (current.storefrontPhoto.isBlank()) {
+                        Text(
+                            "暂无门头照片",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = GraySecondaryText,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                        )
+                    }
+                }
                 RectificationInfo(current, dateFormat, onPreviewPhoto = { previewPhoto = it })
 
                 if (current.remark.isNotBlank()) {
@@ -151,6 +160,110 @@ fun TerminalHazardDetailScreen(
                 )
             }
         )
+    }
+}
+
+@Composable
+private fun DetailHero(record: TerminalHazardRecord) {
+    val displayResult = TerminalHazardCatalog.displayResult(record)
+    val statusColor = when (displayResult) {
+        TerminalHazardCatalog.RESULT_NOT_CLEARED -> RedDanger
+        TerminalHazardCatalog.RESULT_RECTIFIED_LATER -> OrangeAccent
+        else -> GreenSuccess
+    }
+    val activeSteps = when (displayResult) {
+        TerminalHazardCatalog.RESULT_NOT_CLEARED -> 2
+        TerminalHazardCatalog.RESULT_RECTIFIED_LATER -> 3
+        else -> 3
+    }
+    val codeDate = remember(record.inspectionDate) {
+        SimpleDateFormat("yyyyMMdd", Locale.CHINA).format(Date(record.inspectionDate))
+    }
+    val recordCode = "XY-$codeDate-${record.id.toString().padStart(4, '0')}"
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        shadowElevation = 1.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        record.customerName,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = InkPrimary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "检查编号 $recordCode",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GraySecondaryText
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = statusColor.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        displayResult,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        color = statusColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            StatusTimeline(activeSteps)
+        }
+    }
+}
+
+@Composable
+private fun StatusTimeline(activeSteps: Int) {
+    val labels = listOf("已检查", "待整改", "已闭环")
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        labels.forEachIndexed { index, label ->
+            val active = index < activeSteps
+            Column(
+                modifier = Modifier.width(54.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(if (active) BrandGreen else GraySeparator)
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (active) InkPrimary else GrayTertiaryText
+                )
+            }
+            if (index < labels.lastIndex) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = 5.dp)
+                        .height(2.dp)
+                        .background(if (index + 1 < activeSteps) BrandGreen else GraySeparator)
+                )
+            }
+        }
     }
 }
 

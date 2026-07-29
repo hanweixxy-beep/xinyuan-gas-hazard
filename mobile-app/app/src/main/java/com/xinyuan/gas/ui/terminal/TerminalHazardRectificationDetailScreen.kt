@@ -54,13 +54,13 @@ import coil.compose.AsyncImage
 import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardItem
 import com.xinyuan.gas.data.model.TerminalHazardRecord
-import com.xinyuan.gas.ui.components.BrandLogo
 import com.xinyuan.gas.ui.components.IOSGroupCard
 import com.xinyuan.gas.ui.components.IOSPrimaryButton
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
-import com.xinyuan.gas.ui.theme.BluePrimary
+import com.xinyuan.gas.ui.theme.BrandGreen
 import com.xinyuan.gas.ui.theme.GrayBackground
+import com.xinyuan.gas.ui.theme.GraySeparator
 import com.xinyuan.gas.ui.theme.GraySecondaryText
 import com.xinyuan.gas.ui.theme.GrayTertiaryText
 import com.xinyuan.gas.ui.theme.GreenSuccess
@@ -213,11 +213,7 @@ fun TerminalHazardRectificationDetailScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp)
             ) {
-                BrandLogo(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 8.dp, bottom = 12.dp)
-                )
+                Spacer(Modifier.height(12.dp))
 
                 IOSGroupCard(title = "用户信息") {
                     ReadOnlyRow("用户名", current.customerName)
@@ -250,12 +246,12 @@ fun TerminalHazardRectificationDetailScreen(
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodyLarge,
                         colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = GraySeparator,
+                            focusedBorderColor = BrandGreen,
                             unfocusedContainerColor = GrayBackground.copy(alpha = 0.7f),
                             focusedContainerColor = GrayBackground.copy(alpha = 0.7f)
                         ),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     )
                     OutlinedTextField(
                         value = rectificationNote,
@@ -268,12 +264,12 @@ fun TerminalHazardRectificationDetailScreen(
                         textStyle = MaterialTheme.typography.bodyLarge,
                         minLines = 3,
                         colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = GraySeparator,
+                            focusedBorderColor = BrandGreen,
                             unfocusedContainerColor = GrayBackground.copy(alpha = 0.7f),
                             focusedContainerColor = GrayBackground.copy(alpha = 0.7f)
                         ),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     )
                     RectificationPhotoRow(
                         photos = rectificationPhotos,
