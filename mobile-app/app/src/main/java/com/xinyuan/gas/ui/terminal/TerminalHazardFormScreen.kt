@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +71,8 @@ import com.xinyuan.gas.ui.components.IOSPrimaryButton
 import com.xinyuan.gas.ui.components.IOSTextField
 import com.xinyuan.gas.ui.components.IOSTopBar
 import com.xinyuan.gas.ui.inspection.InspectionViewModel
+import com.xinyuan.gas.ui.inspection.CloudSaveStatus
+import com.xinyuan.gas.ui.inspection.CloudSaveUiState
 import com.xinyuan.gas.ui.theme.BluePrimary
 import com.xinyuan.gas.ui.theme.BrandGreen
 import com.xinyuan.gas.ui.theme.BrandGreenSoft
@@ -86,11 +89,13 @@ import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
 import com.xinyuan.gas.ui.theme.RedSoft
 import com.xinyuan.gas.util.PhotoUtil
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 @Composable
 fun TerminalHazardFormScreen(
@@ -101,13 +106,19 @@ fun TerminalHazardFormScreen(
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
     val prefs = remember { context.getSharedPreferences("gas_prefs", android.content.Context.MODE_PRIVATE) }
+    val cloudSettings by viewModel.cloudSettings.collectAsState()
+    val cloudSaveState by viewModel.cloudSaveState.collectAsState()
+    var draftUuid by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
+    var draftCreated by rememberSaveable { mutableStateOf(false) }
 
     var customerName by remember { mutableStateOf("") }
     var storefrontPhoto by remember { mutableStateOf("") }
     var customerPhone by remember { mutableStateOf("") }
     var customerType by remember { mutableStateOf("") }
     var customerAddress by remember { mutableStateOf("") }
-    var inspectorName by remember { mutableStateOf(prefs.getString("last_inspector", "") ?: "") }
+    var inspectorName by remember {
+        mutableStateOf(cloudSettings.userName.ifBlank { prefs.getString("last_inspector", "") ?: "" })
+    }
     var inspectionDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var checkResult by remember { mutableStateOf(TerminalHazardCatalog.RESULT_CLEARED) }
     var originalCheckResult by remember { mutableStateOf("") }
@@ -138,6 +149,8 @@ fun TerminalHazardFormScreen(
         if (editRecordId > 0) {
             viewModel.getTerminalById(editRecordId).collectLatest { record ->
                 if (record != null) {
+                    draftUuid = record.uuid.ifBlank { draftUuid }
+                    draftCreated = record.remoteId.isNotBlank()
                     customerName = record.customerName
                     storefrontPhoto = record.storefrontPhoto
                     customerPhone = record.customerPhone
@@ -265,6 +278,38 @@ fun TerminalHazardFormScreen(
         )
     }
 
+    fun currentRecord(
+        resultToSave: String = checkResult,
+        rectificationDateToSave: Long = rectificationDate
+    ): TerminalHazardRecord {
+        val activePhotos = hazardPhotos.filterKeys { it in selectedHazards }
+        return TerminalHazardRecord(
+            customerName = customerName,
+            storefrontPhoto = storefrontPhoto,
+            customerPhone = customerPhone,
+            customerType = customerType,
+            customerAddress = customerAddress,
+            inspectorName = cloudSettings.userName.ifBlank { inspectorName },
+            inspectionDate = inspectionDate,
+            checkResult = resultToSave,
+            hazardItems = selectedHazards.joinToString(","),
+            hazardPhotos = TerminalHazardCatalog.serializePhotoLists(activePhotos),
+            gasSourceIssues = TerminalHazardCatalog.serializeTextSet(gasSourceIssues),
+            cylinderQrPhotos = TerminalHazardCatalog.serializePhotoList(cylinderQrPhotos),
+            cylinderPhotos = TerminalHazardCatalog.serializePhotoList(cylinderPhotos),
+            rectificationPhotos = TerminalHazardCatalog.serializePhotoList(rectificationPhotos),
+            rectificationDate = rectificationDateToSave,
+            rectificationNote = rectificationNote,
+            rectificationPerson = rectificationPerson,
+            hadUnclearedHazard = hadUnclearedHazard ||
+                resultToSave == TerminalHazardCatalog.RESULT_NOT_CLEARED ||
+                selectedHazards.isNotEmpty(),
+            deliveryPerson = deliveryPerson,
+            remark = remark,
+            uuid = draftUuid
+        )
+    }
+
     fun validateAndSave(
         resultToSave: String = checkResult,
         rectificationDateToSave: Long = rectificationDate
@@ -302,33 +347,7 @@ fun TerminalHazardFormScreen(
         }
 
         prefs.edit().putString("last_inspector", inspectorName).apply()
-        val activePhotos = hazardPhotos.filterKeys { it in selectedHazards }
-        val record = TerminalHazardRecord(
-            id = editRecordId,
-            customerName = customerName,
-            storefrontPhoto = storefrontPhoto,
-            customerPhone = customerPhone,
-            customerType = customerType,
-            customerAddress = customerAddress,
-            inspectorName = inspectorName,
-            inspectionDate = inspectionDate,
-            checkResult = resultToSave,
-            hazardItems = selectedHazards.joinToString(","),
-            hazardPhotos = TerminalHazardCatalog.serializePhotoLists(activePhotos),
-            gasSourceIssues = TerminalHazardCatalog.serializeTextSet(gasSourceIssues),
-            cylinderQrPhotos = TerminalHazardCatalog.serializePhotoList(cylinderQrPhotos),
-            cylinderPhotos = TerminalHazardCatalog.serializePhotoList(cylinderPhotos),
-            rectificationPhotos = TerminalHazardCatalog.serializePhotoList(rectificationPhotos),
-            rectificationDate = rectificationDateToSave,
-            rectificationNote = rectificationNote,
-            rectificationPerson = rectificationPerson,
-            hadUnclearedHazard = hadUnclearedHazard ||
-                resultToSave == TerminalHazardCatalog.RESULT_NOT_CLEARED ||
-                selectedHazards.isNotEmpty(),
-            deliveryPerson = deliveryPerson,
-            remark = remark
-        )
-        viewModel.saveTerminalRecord(record)
+        viewModel.saveTerminalRecord(currentRecord(resultToSave, rectificationDateToSave))
     }
 
     fun validateUserAndSiteStep(): Boolean {
@@ -359,6 +378,34 @@ fun TerminalHazardFormScreen(
             }
         }
         return true
+    }
+
+    LaunchedEffect(
+        draftCreated,
+        customerName,
+        customerPhone,
+        customerType,
+        customerAddress,
+        storefrontPhoto,
+        deliveryPerson,
+        inspectionDate,
+        checkResult,
+        selectedHazards,
+        hazardPhotos,
+        gasSourceIssues,
+        cylinderQrPhotos,
+        cylinderPhotos,
+        remark
+    ) {
+        if (
+            draftCreated &&
+            storefrontWatermarkReady &&
+            storefrontPhoto.isNotBlank() &&
+            customerAddress.isNotBlank()
+        ) {
+            delay(700)
+            viewModel.saveTerminalDraft(currentRecord())
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -393,7 +440,13 @@ fun TerminalHazardFormScreen(
                         1 -> validateHazardStep()
                         else -> true
                     }
-                    if (canContinue) currentStep = (currentStep + 1).coerceAtMost(2)
+                    if (canContinue) {
+                        if (currentStep == 0) {
+                            draftCreated = true
+                            viewModel.saveTerminalDraft(currentRecord())
+                        }
+                        currentStep = (currentStep + 1).coerceAtMost(2)
+                    }
                 },
                 onSubmit = { validateAndSave() }
             )
@@ -406,6 +459,7 @@ fun TerminalHazardFormScreen(
                 .padding(padding)
         ) {
             InspectionStepper(currentStep)
+            CloudSaveBanner(cloudSaveState)
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -435,7 +489,10 @@ fun TerminalHazardFormScreen(
                         }
 
                         IOSGroupCard(title = "检查信息") {
-                            IOSTextField("检查人", inspectorName, { inspectorName = it }, required = true)
+                            LockedAccountField(
+                                label = "检查人",
+                                value = cloudSettings.userName.ifBlank { inspectorName }
+                            )
                             IOSClickableRow(
                                 label = "检查日期",
                                 value = dateFormat.format(Date(inspectionDate)),
@@ -751,6 +808,79 @@ fun TerminalHazardFormScreen(
                     contentScale = ContentScale.Fit
                 )
             }
+        )
+    }
+}
+
+@Composable
+private fun LockedAccountField(label: String, value: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = GraySecondaryText
+        )
+        Spacer(Modifier.height(6.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = GraySurface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GraySeparator)
+        ) {
+            Text(
+                text = value,
+                color = InkPrimary,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)
+            )
+        }
+        Text(
+            text = "自动关联当前登录账号",
+            style = MaterialTheme.typography.bodySmall,
+            color = GrayTertiaryText,
+            modifier = Modifier.padding(top = 5.dp, bottom = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun CloudSaveBanner(state: CloudSaveUiState) {
+    if (state.status == CloudSaveStatus.IDLE) return
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.CHINA) }
+    val background = when (state.status) {
+        CloudSaveStatus.SAVED -> BrandGreenSoft
+        CloudSaveStatus.ERROR -> RedSoft
+        else -> OrangeSoft
+    }
+    val foreground = when (state.status) {
+        CloudSaveStatus.SAVED -> BrandGreenStrong
+        CloudSaveStatus.ERROR -> RedDanger
+        else -> OrangeAccent
+    }
+    val label = when (state.status) {
+        CloudSaveStatus.SAVING -> "正在保存到云端…"
+        CloudSaveStatus.SAVED -> {
+            val suffix = state.savedAt.takeIf { it > 0L }?.let {
+                " · ${timeFormat.format(Date(it))}"
+            }.orEmpty()
+            "${state.message.ifBlank { "草稿已保存到云端" }}$suffix"
+        }
+        CloudSaveStatus.ERROR -> state.message.ifBlank { "尚未保存，请检查网络" }
+        CloudSaveStatus.IDLE -> ""
+    }
+    Surface(color = background) {
+        Text(
+            text = label,
+            color = foreground,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 9.dp)
         )
     }
 }

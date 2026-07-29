@@ -26,8 +26,13 @@ data class CloudSyncResult(
 data class CloudSettings(
     val baseUrl: String = HttpCloudSyncClient.DEFAULT_BASE_URL,
     val token: String = "",
+    val userId: Long = 0L,
     val userName: String = "",
-    val role: String = ""
+    val userPhone: String = "",
+    val companyId: Long = 0L,
+    val companyName: String = "",
+    val role: String = "",
+    val loginScope: String = ""
 ) {
     val isLoggedIn: Boolean
         get() = token.isNotBlank()
@@ -36,8 +41,24 @@ data class CloudSettings(
 data class CloudLoginSession(
     val baseUrl: String,
     val token: String,
+    val userId: Long,
     val userName: String,
-    val role: String
+    val userPhone: String,
+    val companyId: Long,
+    val companyName: String,
+    val role: String,
+    val loginScope: String
+)
+
+data class CloudRecordSummary(
+    val id: Long,
+    val customerName: String,
+    val customerPhone: String,
+    val customerAddress: String,
+    val inspectionDate: String,
+    val checkResult: String,
+    val status: String,
+    val inspectorName: String
 )
 
 class CloudSessionStore(context: Context) {
@@ -47,16 +68,26 @@ class CloudSessionStore(context: Context) {
         baseUrl = prefs.getString("baseUrl", HttpCloudSyncClient.DEFAULT_BASE_URL).orEmpty()
             .ifBlank { HttpCloudSyncClient.DEFAULT_BASE_URL },
         token = prefs.getString("token", "").orEmpty(),
+        userId = prefs.getLong("userId", 0L),
         userName = prefs.getString("userName", "").orEmpty(),
-        role = prefs.getString("role", "").orEmpty()
+        userPhone = prefs.getString("userPhone", "").orEmpty(),
+        companyId = prefs.getLong("companyId", 0L),
+        companyName = prefs.getString("companyName", "").orEmpty(),
+        role = prefs.getString("role", "").orEmpty(),
+        loginScope = prefs.getString("loginScope", "").orEmpty()
     )
 
     fun save(session: CloudLoginSession): CloudSettings {
         prefs.edit()
             .putString("baseUrl", session.baseUrl)
             .putString("token", session.token)
+            .putLong("userId", session.userId)
             .putString("userName", session.userName)
+            .putString("userPhone", session.userPhone)
+            .putLong("companyId", session.companyId)
+            .putString("companyName", session.companyName)
             .putString("role", session.role)
+            .putString("loginScope", session.loginScope)
             .apply()
         return load()
     }
@@ -74,6 +105,9 @@ class CloudSessionStore(context: Context) {
 interface CloudSyncClient {
     suspend fun uploadInspectionRecord(record: InspectionRecord): Result<CloudSyncResult>
     suspend fun uploadTerminalHazardRecord(record: TerminalHazardRecord): Result<CloudSyncResult>
+    suspend fun saveTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
+    suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
+    suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>>
     suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult>
 }
 
@@ -83,6 +117,7 @@ class HttpCloudSyncClient(
     private val token: String
 ) : CloudSyncClient {
     private val apiBase = normalizeBaseUrl(baseUrl)
+    private val uploadedPhotoCache = mutableMapOf<String, String>()
 
     override suspend fun uploadInspectionRecord(record: InspectionRecord): Result<CloudSyncResult> =
         Result.failure(UnsupportedOperationException("瓶装入户记录云同步待接口对齐后启用"))
@@ -92,6 +127,39 @@ class HttpCloudSyncClient(
         val payload = buildTerminalPayload(record, remotePhotos)
         val data = postJson("/records", payload)
         CloudSyncResult(remoteId = data.optLong("id").takeIf { it > 0L }?.toString().orEmpty())
+    }
+
+    override suspend fun saveTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = runCatching {
+        val remotePhotos = uploadTerminalPhotos(record)
+        val data = postJson("/records/drafts", buildTerminalPayload(record, remotePhotos))
+        CloudSyncResult(remoteId = data.optLong("id").takeIf { it > 0L }?.toString().orEmpty())
+    }
+
+    override suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = runCatching {
+        val remotePhotos = uploadTerminalPhotos(record)
+        val data = postJson("/records/drafts/submit", buildTerminalPayload(record, remotePhotos))
+        CloudSyncResult(remoteId = data.optLong("id").takeIf { it > 0L }?.toString().orEmpty())
+    }
+
+    override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = runCatching {
+        val records = getJson("/records").optJSONArray("records") ?: JSONArray()
+        buildList {
+            for (index in 0 until records.length()) {
+                val item = records.optJSONObject(index) ?: continue
+                add(
+                    CloudRecordSummary(
+                        id = item.optLong("id"),
+                        customerName = item.optString("customer_name"),
+                        customerPhone = item.optString("customer_phone"),
+                        customerAddress = item.optString("customer_address"),
+                        inspectionDate = item.optString("inspection_date"),
+                        checkResult = item.optString("check_result"),
+                        status = item.optString("status"),
+                        inspectorName = item.optString("inspector_name")
+                    )
+                )
+            }
+        }
     }
 
     override suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult> = runCatching {
@@ -127,6 +195,8 @@ class HttpCloudSyncClient(
 
     private fun uploadPhotoReference(photoUri: String, ownerUuid: String): String? {
         if (photoUri.isBlank()) return null
+        if (photoUri.startsWith("/uploads/")) return photoUri
+        uploadedPhotoCache[photoUri]?.let { return it }
         val uri = Uri.parse(photoUri)
         val fileName = uri.lastPathSegment
             ?.substringAfterLast('/')
@@ -138,7 +208,9 @@ class HttpCloudSyncClient(
             "file" -> uri.path?.let { File(it).takeIf(File::isFile)?.readBytes() }
             else -> File(photoUri).takeIf(File::isFile)?.readBytes()
         } ?: return null
-        return uploadBytes(fileName, mimeType, bytes)
+        return uploadBytes(fileName, mimeType, bytes).also { uploadedPath ->
+            uploadedPhotoCache[photoUri] = uploadedPath
+        }
     }
 
     private fun uploadBytes(fileName: String, mimeType: String, bytes: ByteArray): String {
@@ -196,6 +268,9 @@ class HttpCloudSyncClient(
         connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
         return readData(connection)
     }
+
+    private fun getJson(endpoint: String): JSONObject =
+        readData(openConnection(endpoint, "GET"))
 
     private fun openConnection(endpoint: String, method: String): HttpURLConnection {
         val url = URL(apiBase.trimEnd('/') + "/" + endpoint.trimStart('/'))
@@ -255,7 +330,7 @@ class HttpCloudSyncClient(
     )
 
     companion object {
-        const val DEFAULT_BASE_URL = "http://124.220.26.188/api"
+        const val DEFAULT_BASE_URL = "https://www.gashbxy.com/api"
 
         private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
 
@@ -274,26 +349,38 @@ class HttpCloudSyncClient(
                     JSONObject().apply {
                         put("phone", phone.trim())
                         put("password", password)
+                        put("clientType", "app")
                     }
                 )
                 val user = data.optJSONObject("user") ?: JSONObject()
                 CloudLoginSession(
                     baseUrl = normalizedBaseUrl,
                     token = data.optString("token"),
+                    userId = user.optLong("id"),
                     userName = user.optString("name").ifBlank { phone.trim() },
-                    role = user.optString("role")
+                    userPhone = user.optString("phone"),
+                    companyId = user.optLong("companyId"),
+                    companyName = user.optString("companyName"),
+                    role = user.optString("role"),
+                    loginScope = user.optString("loginScope")
                 )
             }
     }
 }
 
 class NotConfiguredCloudSyncClient : CloudSyncClient {
-    private fun notConfigured(): Result<CloudSyncResult> =
+    private fun <T> notConfigured(): Result<T> =
         Result.failure(IllegalStateException("云端服务器未配置"))
 
     override suspend fun uploadInspectionRecord(record: InspectionRecord): Result<CloudSyncResult> = notConfigured()
 
     override suspend fun uploadTerminalHazardRecord(record: TerminalHazardRecord): Result<CloudSyncResult> = notConfigured()
+
+    override suspend fun saveTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = notConfigured()
+
+    override suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = notConfigured()
+
+    override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = notConfigured()
 
     override suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult> = notConfigured()
 }

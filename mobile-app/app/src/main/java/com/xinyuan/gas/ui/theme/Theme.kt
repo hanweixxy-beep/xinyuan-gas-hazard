@@ -14,24 +14,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-// 2026 企业视觉规范。保留旧变量名作为兼容别名，避免业务页面重复定义颜色。
-val InkPrimary = Color(0xFF111418)
-val InkSecondary = Color(0xFF5F6670)
-val InkTertiary = Color(0xFF8B929C)
-val BrandGreen = Color(0xFF17805D)
-val BrandGreenStrong = Color(0xFF116B4E)
-val BrandGreenSoft = Color(0xFFEAF6F1)
-val BluePrimary = Color(0xFF0A6FE8)
-val BlueLight = Color(0xFFEAF3FF)
-val OrangeAccent = Color(0xFFA85B00)
-val OrangeSoft = Color(0xFFFFF4E4)
-val GreenSuccess = BrandGreen
-val RedDanger = Color(0xFFC73D36)
-val RedSoft = Color(0xFFFDEEEE)
-val GrayBackground = Color(0xFFF5F6F8)
+// 云端版视觉规范。保留旧变量名作为兼容别名，让现有业务表单同步换肤。
+val InkPrimary = Color(0xFF27231F)
+val InkSecondary = Color(0xFF6B655F)
+val InkTertiary = Color(0xFF9B948C)
+val BrandGreen = Color(0xFFD97757)
+val BrandGreenStrong = Color(0xFFB65D42)
+val BrandGreenSoft = Color(0xFFF8EAE4)
+val BluePrimary = Color(0xFF5D6F87)
+val BlueLight = Color(0xFFEEF1F4)
+val OrangeAccent = Color(0xFFA66B2E)
+val OrangeSoft = Color(0xFFF7EDDF)
+val GreenSuccess = Color(0xFF3F6B55)
+val RedDanger = Color(0xFFA4473C)
+val RedSoft = Color(0xFFF6E6E3)
+val GrayBackground = Color(0xFFFAF9F5)
 val GrayCard = Color(0xFFFFFFFF)
-val GraySurface = Color(0xFFEEF0F3)
-val GraySeparator = Color(0xFFDDE1E6)
+val GraySurface = Color(0xFFF5F2EA)
+val GraySeparator = Color(0xFFDED8CE)
 val GraySecondaryText = InkSecondary
 val GrayTertiaryText = InkTertiary
 
@@ -40,7 +40,7 @@ private val LightColorScheme = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = BrandGreenSoft,
     onPrimaryContainer = BrandGreenStrong,
-    secondary = OrangeAccent,
+    secondary = GreenSuccess,
     background = GrayBackground,
     surface = Color.White,
     surfaceVariant = GraySurface,
@@ -125,7 +125,7 @@ fun GasHazardTheme(content: @Composable () -> Unit) {
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = Color.White.toArgb()
+            window.statusBarColor = GrayBackground.toArgb()
             window.navigationBarColor = Color.White.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = true
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = true

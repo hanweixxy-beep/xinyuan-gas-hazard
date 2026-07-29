@@ -37,7 +37,7 @@ fun BrandLogo(
         Box(
             modifier = Modifier
                 .size(if (large) 56.dp else 44.dp)
-                .background(BrandGreen, RoundedCornerShape(if (large) 16.dp else 12.dp)),
+                .background(BrandGreen, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -68,7 +68,7 @@ fun IOSGroupCard(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(8.dp)
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -135,7 +135,7 @@ fun IOSTextField(
             singleLine = singleLine,
             minLines = minLines,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = GraySeparator,
                 focusedBorderColor = BrandGreen,
@@ -170,7 +170,7 @@ private fun SelectionShell(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 50.dp)
-            .border(1.dp, GraySeparator, RoundedCornerShape(12.dp))
+            .border(1.dp, GraySeparator, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -302,7 +302,7 @@ fun IOSPrimaryButton(
             .fillMaxWidth()
             .height(50.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(containerColor = color)
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge)
@@ -328,7 +328,7 @@ fun IOSTopBar(
                     modifier = Modifier
                         .padding(start = 8.dp)
                         .size(40.dp)
-                        .background(GraySurface, RoundedCornerShape(12.dp))
+                        .background(GraySurface, RoundedCornerShape(8.dp))
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = InkPrimary)
                 }
@@ -354,8 +354,8 @@ fun StatCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.border(1.dp, GraySeparator, RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.border(1.dp, GraySeparator, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -383,10 +383,10 @@ fun QuickActionButton(
 ) {
     Card(
         modifier = modifier
-            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, GraySeparator, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -399,7 +399,7 @@ fun QuickActionButton(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                    .background(color.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
@@ -419,10 +419,10 @@ fun RecordCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, GraySeparator, RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, GraySeparator, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -435,7 +435,7 @@ fun RecordCard(
                 Text(record.customerName, style = MaterialTheme.typography.titleMedium)
                 val statusColor = if (record.isRectified == "已整改") GreenSuccess else OrangeAccent
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = statusColor.copy(alpha = 0.12f)
                 ) {
                     Text(

@@ -19,7 +19,7 @@ import openpyxl
 
 
 DEFAULT_INPUT_DIR = Path(r"C:\Users\tonyh\Desktop\新建文件夹 (2)")
-DEFAULT_BASE_URL = "http://124.220.26.188"
+DEFAULT_BASE_URL = "https://www.gashbxy.com"
 DEFAULT_REPORT = Path("outputs/old_excel_import_preview.json")
 
 VALID_CUSTOMER_TYPES = {"居民用户", "商业用户", "餐饮用户", "工业用户", "流动摊贩"}
@@ -396,7 +396,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="导入旧版 APP 导出的终端用户隐患核查清单 Excel。默认只预检，不写入服务器。")
     parser.add_argument("--input-dir", default=str(DEFAULT_INPUT_DIR), help="旧 Excel 所在目录")
     parser.add_argument("--glob", default="终端用户隐患核查清单_*.xlsx", help="匹配文件名")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="系统地址，例如 http://124.220.26.188")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="系统地址，例如 https://www.gashbxy.com")
     parser.add_argument("--phone", help="后台账号手机号；--execute 时必填")
     parser.add_argument("--password", help="后台账号密码；不填则执行时提示输入")
     parser.add_argument("--company-id", type=int, default=0, help="总部管理员导入时指定公司 ID")

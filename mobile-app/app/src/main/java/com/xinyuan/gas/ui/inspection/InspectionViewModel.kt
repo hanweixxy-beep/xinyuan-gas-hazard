@@ -16,6 +16,7 @@ import com.xinyuan.gas.data.model.TerminalHazardRecord
 import com.xinyuan.gas.data.repository.InspectionRepository
 import com.xinyuan.gas.data.repository.TerminalHazardRepository
 import com.xinyuan.gas.data.sync.CloudSessionStore
+import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudSettings
 import com.xinyuan.gas.data.sync.HttpCloudSyncClient
 import com.xinyuan.gas.util.BackupUtil
@@ -31,12 +32,28 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
 
+enum class CloudSaveStatus {
+    IDLE,
+    SAVING,
+    SAVED,
+    ERROR
+}
+
+data class CloudSaveUiState(
+    val status: CloudSaveStatus = CloudSaveStatus.IDLE,
+    val message: String = "",
+    val savedAt: Long = 0L
+)
+
 class InspectionViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repo: InspectionRepository
     private val terminalRepo: TerminalHazardRepository
     private val cloudStore = CloudSessionStore(application)
     private val terminalSyncMutex = Mutex()
+    private val cloudDraftMutex = Mutex()
+    private var activeCloudClient: HttpCloudSyncClient? = null
+    private var activeCloudClientKey = ""
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     val allRecords: Flow<List<InspectionRecord>>
@@ -52,6 +69,21 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _cloudSettings = MutableStateFlow(cloudStore.load())
     val cloudSettings: StateFlow<CloudSettings> = _cloudSettings.asStateFlow()
+
+    private val _cloudRecords = MutableStateFlow<List<CloudRecordSummary>>(emptyList())
+    val cloudRecords: StateFlow<List<CloudRecordSummary>> = _cloudRecords.asStateFlow()
+
+    private val _cloudRecordsLoading = MutableStateFlow(false)
+    val cloudRecordsLoading: StateFlow<Boolean> = _cloudRecordsLoading.asStateFlow()
+
+    private val _cloudLoginInProgress = MutableStateFlow(false)
+    val cloudLoginInProgress: StateFlow<Boolean> = _cloudLoginInProgress.asStateFlow()
+
+    private val _cloudSaveState = MutableStateFlow(CloudSaveUiState())
+    val cloudSaveState: StateFlow<CloudSaveUiState> = _cloudSaveState.asStateFlow()
+
+    private val _legacyMigrationRunning = MutableStateFlow(false)
+    val legacyMigrationRunning: StateFlow<Boolean> = _legacyMigrationRunning.asStateFlow()
 
     // 搜索
     private val _searchQuery = MutableStateFlow("")
@@ -140,7 +172,9 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         terminalTodayCount = terminalRepo.todayCount(startOfDay)
 
         registerAutoSyncOnNetworkAvailable()
-        triggerAutoTerminalSync()
+        if (_cloudSettings.value.isLoggedIn) {
+            refreshCloudRecords()
+        }
     }
 
     fun setSearchQuery(query: String) { _searchQuery.value = query }
@@ -182,18 +216,81 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun saveTerminalRecord(record: TerminalHazardRecord) {
         viewModelScope.launch {
-            try {
-                val id = if (record.id == 0L) {
-                    terminalRepo.insert(record)
-                } else {
-                    terminalRepo.update(record.copy(updatedAt = System.currentTimeMillis()))
-                    record.id
-                }
-                _terminalSaveResult.emit(Result.success(id))
-                triggerAutoTerminalSync()
-            } catch (e: Exception) {
-                _terminalSaveResult.emit(Result.failure(e))
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn) {
+                _terminalSaveResult.emit(Result.failure(IllegalStateException("请先登录 APP 账号")))
+                return@launch
             }
+            if (!isNetworkAvailable()) {
+                _cloudSaveState.value = CloudSaveUiState(
+                    status = CloudSaveStatus.ERROR,
+                    message = "网络不可用，尚未提交"
+                )
+                _terminalSaveResult.emit(Result.failure(IllegalStateException("当前网络不可用，记录尚未提交")))
+                return@launch
+            }
+
+            _cloudSaveState.value = CloudSaveUiState(CloudSaveStatus.SAVING, "正在提交到云端")
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).submitTerminalDraft(record)
+            }
+            result.fold(
+                onSuccess = { syncResult ->
+                    _cloudSaveState.value = CloudSaveUiState(
+                        status = CloudSaveStatus.SAVED,
+                        message = "已提交到云端",
+                        savedAt = System.currentTimeMillis()
+                    )
+                    TerminalHazardCatalog.photoUris(record).forEach { uri ->
+                        PhotoUtil.deletePhoto(getApplication(), uri)
+                    }
+                    refreshCloudRecords()
+                    _terminalSaveResult.emit(Result.success(syncResult.remoteId.toLongOrNull() ?: 0L))
+                },
+                onFailure = { error ->
+                    _cloudSaveState.value = CloudSaveUiState(
+                        status = CloudSaveStatus.ERROR,
+                        message = error.message ?: "提交失败"
+                    )
+                    _terminalSaveResult.emit(Result.failure(error))
+                }
+            )
+        }
+    }
+
+    fun saveTerminalDraft(record: TerminalHazardRecord) {
+        viewModelScope.launch {
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn) {
+                _cloudSaveState.value = CloudSaveUiState(CloudSaveStatus.ERROR, "请先登录")
+                return@launch
+            }
+            if (!isNetworkAvailable()) {
+                _cloudSaveState.value = CloudSaveUiState(CloudSaveStatus.ERROR, "网络不可用，尚未保存")
+                return@launch
+            }
+
+            _cloudSaveState.value = CloudSaveUiState(CloudSaveStatus.SAVING, "正在保存到云端")
+            val result = withContext(Dispatchers.IO) {
+                cloudDraftMutex.withLock {
+                    cloudClient(settings).saveTerminalDraft(record)
+                }
+            }
+            result.fold(
+                onSuccess = {
+                    _cloudSaveState.value = CloudSaveUiState(
+                        status = CloudSaveStatus.SAVED,
+                        message = "草稿已保存到云端",
+                        savedAt = System.currentTimeMillis()
+                    )
+                },
+                onFailure = { error ->
+                    _cloudSaveState.value = CloudSaveUiState(
+                        status = CloudSaveStatus.ERROR,
+                        message = error.message ?: "云端保存失败"
+                    )
+                }
+            )
         }
     }
 
@@ -223,7 +320,6 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     "恢复完成：瓶装新增 ${inspection.inserted} 条、更新 ${inspection.updated} 条；终端新增 ${terminal.inserted} 条、更新 ${terminal.updated} 条；照片 ${payload.restoredPhotoCount} 张"
                 }
                 _dataActionMessage.emit(message)
-                triggerAutoTerminalSync()
             } catch (e: Exception) {
                 _dataActionMessage.emit("恢复失败：${e.message ?: "未知错误"}")
             }
@@ -240,7 +336,6 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     "恢复完成：瓶装新增 ${inspection.inserted} 条、更新 ${inspection.updated} 条；终端新增 ${terminal.inserted} 条、更新 ${terminal.updated} 条；照片 ${payload.restoredPhotoCount} 张"
                 }
                 _dataActionMessage.emit(message)
-                triggerAutoTerminalSync()
             } catch (e: Exception) {
                 _dataActionMessage.emit("恢复失败：${e.message ?: "未知错误"}")
             }
@@ -265,7 +360,6 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     "Excel导入完成：新增 ${result.records.size} 条，跳过重复 ${result.skippedDuplicateCount} 条，恢复照片 ${result.importedPhotoCount} 张，提示 ${result.warningCount} 条；导入前备份 ${backup.file.name}"
                 }
                 _dataActionMessage.emit(message)
-                triggerAutoTerminalSync()
             } catch (e: Exception) {
                 _dataActionMessage.emit("Excel导入失败：${e.message ?: "未知错误"}")
             }
@@ -274,6 +368,8 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun loginCloud(baseUrl: String, phone: String, password: String) {
         viewModelScope.launch {
+            if (_cloudLoginInProgress.value) return@launch
+            _cloudLoginInProgress.value = true
             try {
                 val settings = withContext(Dispatchers.IO) {
                     val session = HttpCloudSyncClient.login(getApplication(), baseUrl, phone, password).getOrThrow()
@@ -281,9 +377,13 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 _cloudSettings.value = settings
                 _dataActionMessage.emit("云端登录成功：${settings.userName.ifBlank { "已登录" }}")
-                triggerAutoTerminalSync()
+                activeCloudClient = null
+                activeCloudClientKey = ""
+                refreshCloudRecords()
             } catch (e: Exception) {
                 _dataActionMessage.emit("云端登录失败：${e.message ?: "未知错误"}")
+            } finally {
+                _cloudLoginInProgress.value = false
             }
         }
     }
@@ -292,7 +392,58 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             val settings = withContext(Dispatchers.IO) { cloudStore.clear() }
             _cloudSettings.value = settings
+            _cloudRecords.value = emptyList()
+            _cloudSaveState.value = CloudSaveUiState()
+            activeCloudClient = null
+            activeCloudClientKey = ""
             _dataActionMessage.emit("已退出云端账号")
+        }
+    }
+
+    fun refreshCloudRecords() {
+        viewModelScope.launch {
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn || _cloudRecordsLoading.value) return@launch
+            _cloudRecordsLoading.value = true
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).fetchTerminalRecords()
+            }
+            result.fold(
+                onSuccess = { _cloudRecords.value = it },
+                onFailure = { error ->
+                    _dataActionMessage.emit("云端记录加载失败：${error.message ?: "未知错误"}")
+                }
+            )
+            _cloudRecordsLoading.value = false
+        }
+    }
+
+    fun migrateLegacyRecords() {
+        viewModelScope.launch {
+            if (_legacyMigrationRunning.value) return@launch
+            _legacyMigrationRunning.value = true
+            val message = syncTerminalRecordsToCloudInternal(showStatusMessage = true)
+            _legacyMigrationRunning.value = false
+            _dataActionMessage.emit(message)
+            refreshCloudRecords()
+        }
+    }
+
+    fun clearMigratedLegacyData() {
+        viewModelScope.launch {
+            val unsynced = withContext(Dispatchers.IO) { terminalRepo.getUnsyncedRecords() }
+            if (unsynced.isNotEmpty()) {
+                _dataActionMessage.emit("仍有 ${unsynced.size} 条旧记录未迁移，暂不清理本机数据")
+                return@launch
+            }
+            val records = allTerminalRecords.first()
+            withContext(Dispatchers.IO) {
+                terminalRepo.deleteAll()
+                records.flatMap { TerminalHazardCatalog.photoUris(it) }
+                    .distinct()
+                    .forEach { PhotoUtil.deletePhoto(getApplication(), it) }
+            }
+            _dataActionMessage.emit("旧版数据已完成核对并从本机清理")
         }
     }
 
@@ -302,19 +453,13 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    private fun triggerAutoTerminalSync() {
-        viewModelScope.launch {
-            syncTerminalRecordsToCloudInternal(showStatusMessage = false)
-        }
-    }
-
     private suspend fun syncTerminalRecordsToCloudInternal(showStatusMessage: Boolean): String {
         val settings = _cloudSettings.value
         if (!settings.isLoggedIn) {
             return if (showStatusMessage) "请先登录云端账号" else ""
         }
         if (!isNetworkAvailable()) {
-            return if (showStatusMessage) "当前网络不可用，记录已保留为待上传，网络恢复后会自动重试" else ""
+            return if (showStatusMessage) "当前网络不可用，旧记录仍安全保留；联网后请重新点击开始迁移" else ""
         }
 
         return runCatching {
@@ -358,7 +503,16 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    private fun isNetworkAvailable(): Boolean {
+    private fun cloudClient(settings: CloudSettings): HttpCloudSyncClient {
+        val key = "${settings.baseUrl}|${settings.token}"
+        if (activeCloudClient == null || activeCloudClientKey != key) {
+            activeCloudClient = HttpCloudSyncClient(getApplication(), settings.baseUrl, settings.token)
+            activeCloudClientKey = key
+        }
+        return requireNotNull(activeCloudClient)
+    }
+
+    fun isNetworkAvailable(): Boolean {
         val connectivityManager = getApplication<Application>()
             .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivityManager.activeNetwork ?: return false
@@ -374,7 +528,9 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                triggerAutoTerminalSync()
+                if (_cloudSettings.value.isLoggedIn) {
+                    refreshCloudRecords()
+                }
             }
         }
         runCatching {

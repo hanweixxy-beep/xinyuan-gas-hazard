@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Core\HttpException;
 use App\Domain\HazardCatalog;
 use PDO;
 
@@ -41,7 +42,7 @@ final class RecordRepository
              FROM inspection_records r
              INNER JOIN companies c ON c.id = r.company_id
              INNER JOIN users u ON u.id = r.creator_id
-             WHERE r.id = :id AND {$where}
+             WHERE r.id = :id AND r.record_state = 'submitted' AND {$where}
              LIMIT 1"
         );
         $stmt->execute($params);
@@ -80,11 +81,11 @@ final class RecordRepository
 
             $stmt = $this->pdo->prepare(
                 "INSERT INTO inspection_records
-                 (client_uuid, company_id, creator_id, customer_name, customer_phone, customer_type, customer_address,
+                 (client_uuid, company_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
                   inspector_name, delivery_person, inspection_date, check_result, status, remark,
                   location_lat, location_lng, location_address, rectification_date, rectification_note, rectification_person)
                  VALUES
-                 (:client_uuid, :company_id, :creator_id, :customer_name, :customer_phone, :customer_type, :customer_address,
+                 (:client_uuid, :company_id, :creator_id, 'submitted', :customer_name, :customer_phone, :customer_type, :customer_address,
                   :inspector_name, :delivery_person, :inspection_date, :check_result, :status, :remark,
                   :location_lat, :location_lng, :location_address, :rectification_date, :rectification_note, :rectification_person)"
             );
@@ -133,6 +134,131 @@ final class RecordRepository
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
+    public function saveDraft(array $user, array $payload): int
+    {
+        $clientUuid = $this->normalizeClientUuid($payload['clientUuid'] ?? $payload['uuid'] ?? null);
+        if ($clientUuid === null) {
+            throw new HttpException(422, '云端草稿缺少客户端 UUID。');
+        }
+
+        $hazardMap = HazardCatalog::hazardMap();
+        $status = match ($payload['checkResult'] ?? HazardCatalog::RESULT_CLEARED) {
+            HazardCatalog::RESULT_NOT_CLEARED => 'pending',
+            HazardCatalog::RESULT_RECTIFIED => 'rectified',
+            default => 'done',
+        };
+
+        $this->pdo->beginTransaction();
+        try {
+            $existing = $this->findByClientUuid($clientUuid);
+            if ($existing && (int) $existing['creator_id'] !== (int) $user['id']) {
+                throw new HttpException(409, '该草稿标识已被其他账号使用。');
+            }
+            if ($existing && $existing['record_state'] === 'submitted') {
+                $this->pdo->commit();
+                return (int) $existing['id'];
+            }
+
+            $values = [
+                'client_uuid' => $clientUuid,
+                'company_id' => $this->resolveCompanyId($user, $payload),
+                'creator_id' => (int) $user['id'],
+                'customer_name' => $payload['customerName'],
+                'customer_phone' => $payload['customerPhone'],
+                'customer_type' => $payload['customerType'],
+                'customer_address' => $payload['customerAddress'],
+                'inspector_name' => $payload['inspectorName'],
+                'delivery_person' => $payload['deliveryPerson'],
+                'inspection_date' => $payload['inspectionDate'],
+                'check_result' => $payload['checkResult'] ?? HazardCatalog::RESULT_CLEARED,
+                'status' => $status,
+                'remark' => $payload['remark'] ?? '',
+                'location_lat' => $payload['location']['lat'] ?? null,
+                'location_lng' => $payload['location']['lng'] ?? null,
+                'location_address' => $payload['location']['address'] ?? $payload['customerAddress'],
+                'rectification_date' => $this->normalizeDate($payload['rectificationDate'] ?? null),
+                'rectification_note' => $payload['rectificationNote'] ?? '',
+                'rectification_person' => $payload['rectificationPerson'] ?? '',
+            ];
+
+            if ($existing) {
+                $recordId = (int) $existing['id'];
+                $values['id'] = $recordId;
+                $stmt = $this->pdo->prepare(
+                    "UPDATE inspection_records
+                     SET company_id = :company_id,
+                         customer_name = :customer_name,
+                         customer_phone = :customer_phone,
+                         customer_type = :customer_type,
+                         customer_address = :customer_address,
+                         inspector_name = :inspector_name,
+                         delivery_person = :delivery_person,
+                         inspection_date = :inspection_date,
+                         check_result = :check_result,
+                         status = :status,
+                         remark = :remark,
+                         location_lat = :location_lat,
+                         location_lng = :location_lng,
+                         location_address = :location_address,
+                         rectification_date = :rectification_date,
+                         rectification_note = :rectification_note,
+                         rectification_person = :rectification_person
+                     WHERE id = :id"
+                );
+                unset($values['client_uuid'], $values['creator_id']);
+                $stmt->execute($values);
+            } else {
+                $stmt = $this->pdo->prepare(
+                    "INSERT INTO inspection_records
+                     (client_uuid, company_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
+                      inspector_name, delivery_person, inspection_date, check_result, status, remark,
+                      location_lat, location_lng, location_address, rectification_date, rectification_note, rectification_person)
+                     VALUES
+                     (:client_uuid, :company_id, :creator_id, 'draft', :customer_name, :customer_phone, :customer_type, :customer_address,
+                      :inspector_name, :delivery_person, :inspection_date, :check_result, :status, :remark,
+                      :location_lat, :location_lng, :location_address, :rectification_date, :rectification_note, :rectification_person)"
+                );
+                $stmt->execute($values);
+                $recordId = (int) $this->pdo->lastInsertId();
+            }
+
+            $this->replaceDraftChildren($recordId, $payload, $hazardMap);
+            $this->pdo->commit();
+            return $recordId;
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    /** @param array<string, mixed> $user */
+    public function submitDraftByClientUuid(string $clientUuid, array $user): int
+    {
+        $existing = $this->findByClientUuid($clientUuid);
+        if (!$existing || (int) $existing['creator_id'] !== (int) $user['id']) {
+            throw new HttpException(404, '云端草稿不存在，或你没有权限提交。');
+        }
+
+        $recordId = (int) $existing['id'];
+        if ($existing['record_state'] === 'submitted') {
+            return $recordId;
+        }
+
+        $stmt = $this->pdo->prepare(
+            "UPDATE inspection_records
+             SET record_state = 'submitted', updated_at = NOW()
+             WHERE id = :id AND creator_id = :creator_id"
+        );
+        $stmt->execute([
+            'id' => $recordId,
+            'creator_id' => (int) $user['id'],
+        ]);
+        return $recordId;
+    }
+
+    /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function rectify(int $id, array $user, array $payload): void
     {
         $record = $this->findForUser($id, $user);
@@ -169,7 +295,7 @@ final class RecordRepository
     private function listConditions(array $user, array $filters): array
     {
         [$scopeWhere, $params] = $this->scopeCondition($user, 'r');
-        $conditions = [$scopeWhere];
+        $conditions = [$scopeWhere, "r.record_state = 'submitted'"];
 
         $status = (string) ($filters['status'] ?? '');
         if (in_array($status, ['done', 'pending', 'rectified'], true)) {
@@ -251,21 +377,12 @@ final class RecordRepository
     /** @param array<string, mixed> $user @return array{0:string,1:array<string,mixed>} */
     private function scopeCondition(array $user, string $alias): array
     {
-        if ($user['role'] === 'hq_admin') {
-            return ['1 = 1', []];
-        }
-        if ($user['role'] === 'company_admin') {
-            return ["{$alias}.company_id = :company_id", ['company_id' => (int) $user['company_id']]];
-        }
         return ["{$alias}.creator_id = :creator_id", ['creator_id' => (int) $user['id']]];
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     private function resolveCompanyId(array $user, array $payload): int
     {
-        if ($user['role'] === 'hq_admin' && !empty($payload['companyId'])) {
-            return (int) $payload['companyId'];
-        }
         return (int) $user['company_id'];
     }
 
@@ -294,6 +411,37 @@ final class RecordRepository
         $stmt->execute($params);
         $id = $stmt->fetchColumn();
         return $id === false ? null : (int) $id;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function findByClientUuid(string $clientUuid): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, creator_id, record_state FROM inspection_records WHERE client_uuid = :client_uuid LIMIT 1'
+        );
+        $stmt->execute(['client_uuid' => $clientUuid]);
+        $record = $stmt->fetch();
+        return $record ?: null;
+    }
+
+    /** @param array<string, mixed> $payload @param array<string, array{code:string,category:string,name:string}> $hazardMap */
+    private function replaceDraftChildren(int $recordId, array $payload, array $hazardMap): void
+    {
+        foreach (['record_hazards', 'record_gas_source_issues', 'record_photos'] as $table) {
+            $stmt = $this->pdo->prepare("DELETE FROM {$table} WHERE record_id = :record_id");
+            $stmt->execute(['record_id' => $recordId]);
+        }
+
+        foreach ($payload['hazardItems'] ?? [] as $code) {
+            $item = $hazardMap[$code] ?? ['code' => $code, 'category' => '其他隐患', 'name' => $code];
+            $this->insertHazard($recordId, $item);
+        }
+        foreach ($payload['gasSourceIssues'] ?? [] as $issue) {
+            $this->insertGasSourceIssue($recordId, (string) $issue);
+        }
+        foreach ($this->flattenPhotos($payload['photos'] ?? []) as $photo) {
+            $this->insertPhoto($recordId, $photo);
+        }
     }
 
     /** @return list<array<string, mixed>> */

@@ -10,6 +10,7 @@ final class AdminService
 {
     private const ROLES = ['hq_admin', 'company_admin', 'inspector'];
     private const STATUSES = ['active', 'disabled'];
+    private const LOGIN_SCOPES = ['app', 'admin', 'both'];
 
     public function __construct(
         private CompanyRepository $companies,
@@ -63,6 +64,7 @@ final class AdminService
         $name = trim((string) ($payload['name'] ?? ''));
         $phone = trim((string) ($payload['phone'] ?? ''));
         $role = (string) ($payload['role'] ?? '');
+        $loginScope = (string) ($payload['loginScope'] ?? ($role === 'inspector' ? 'both' : 'admin'));
         $password = (string) ($payload['password'] ?? '');
         $companyId = $this->resolveCompanyId($actor, $payload);
 
@@ -74,6 +76,12 @@ final class AdminService
         }
         if (!in_array($role, self::ROLES, true)) {
             throw new HttpException(422, '用户角色不正确。');
+        }
+        if (!in_array($loginScope, self::LOGIN_SCOPES, true)) {
+            throw new HttpException(422, '登录权限不正确。');
+        }
+        if ($role !== 'inspector' && $loginScope !== 'admin') {
+            throw new HttpException(422, '管理员账号只能登录电脑管理后台。');
         }
         if (mb_strlen($password) < 8) {
             throw new HttpException(422, '初始密码至少 8 位。');
@@ -90,6 +98,7 @@ final class AdminService
             'phone' => $phone,
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
             'role' => $role,
+            'login_scope' => $loginScope,
         ]);
     }
 

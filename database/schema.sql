@@ -75,6 +75,7 @@ CREATE TABLE `inspection_records` (
   `client_uuid` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `company_id` bigint unsigned NOT NULL,
   `creator_id` bigint unsigned NOT NULL,
+  `record_state` enum('draft','submitted') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'submitted',
   `customer_name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
   `customer_phone` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
   `customer_type` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -97,6 +98,7 @@ CREATE TABLE `inspection_records` (
   UNIQUE KEY `uq_inspection_client_uuid` (`client_uuid`),
   KEY `idx_records_company_date` (`company_id`,`inspection_date`),
   KEY `idx_records_creator_date` (`creator_id`,`inspection_date`),
+  KEY `idx_records_creator_state_date` (`creator_id`,`record_state`,`inspection_date`),
   KEY `idx_records_status` (`status`),
   CONSTRAINT `fk_records_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
   CONSTRAINT `fk_records_creator` FOREIGN KEY (`creator_id`) REFERENCES `users` (`id`)
@@ -160,6 +162,7 @@ DROP TABLE IF EXISTS `sessions`;
 CREATE TABLE `sessions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint unsigned NOT NULL,
+  `client_type` enum('app','admin') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'admin',
   `token_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
   `expires_at` datetime NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -179,6 +182,7 @@ CREATE TABLE `users` (
   `phone` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
   `password_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `role` enum('hq_admin','company_admin','inspector') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `login_scope` enum('app','admin','both') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'both',
   `status` enum('active','disabled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `last_login_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,

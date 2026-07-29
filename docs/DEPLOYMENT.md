@@ -48,3 +48,7 @@ Nginx 参考配置位于 `deploy/nginx/xinyuan-gas.conf.example`。
 ## Android APP
 
 Android 工程在 `mobile-app/`。签名文件不进入仓库，需要从安全备份恢复到 `mobile-app/signing/`。
+
+正式升级旧 APP 时必须使用原签名构建 release APK，并直接覆盖安装，不能先卸载。
+云端化发布流程和旧数据迁移说明见
+[`APP_CLOUD_FIRST_V2.md`](APP_CLOUD_FIRST_V2.md)。

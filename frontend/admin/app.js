@@ -130,6 +130,14 @@ function roleLabel(role) {
   return labels[role] || role || '-';
 }
 
+function loginScopeLabel(scope) {
+  return {
+    app: '仅 APP',
+    admin: '仅后台',
+    both: 'APP + 后台'
+  }[scope] || 'APP + 后台';
+}
+
 function userStatusText(status) {
   return status === 'active' ? '启用' : '停用';
 }
@@ -154,7 +162,8 @@ async function login(button = null) {
       method: 'POST',
       body: JSON.stringify({
         phone: $('#loginPhone').value.trim(),
-        password: $('#loginPassword').value
+        password: $('#loginPassword').value,
+        clientType: 'admin'
       })
     });
     state.token = data.token;
@@ -394,6 +403,17 @@ function renderRoleOptions() {
   $('#userRoleSelect').innerHTML = roles
     .map((role) => `<option value="${role}">${roleLabel(role)}</option>`)
     .join('');
+  renderLoginScopeOptions();
+}
+
+function renderLoginScopeOptions() {
+  const role = $('#userRoleSelect').value;
+  const scopes = role === 'inspector'
+    ? ['both', 'app', 'admin']
+    : ['admin'];
+  $('#userLoginScopeSelect').innerHTML = scopes
+    .map((scope) => `<option value="${scope}">${loginScopeLabel(scope)}</option>`)
+    .join('');
 }
 
 function renderCompanyRows() {
@@ -422,6 +442,7 @@ function renderUserRows() {
         <td>${escapeHtml(user.phone)}</td>
         <td>${escapeHtml(user.company_name || '-')}</td>
         <td>${roleLabel(user.role)}</td>
+        <td>${loginScopeLabel(user.login_scope)}</td>
         <td><span class="status ${user.status === 'active' ? '' : 'disabled'}">${userStatusText(user.status)}</span></td>
         <td>${escapeHtml(user.last_login_at || '-')}</td>
         <td>
@@ -432,7 +453,7 @@ function renderUserRows() {
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="7">暂无用户</td></tr>';
+  }).join('') || '<tr><td colspan="8">暂无用户</td></tr>';
 }
 
 async function createCompany(event) {
@@ -467,6 +488,7 @@ async function createUser(event) {
         name: String(form.get('name') || '').trim(),
         phone: String(form.get('phone') || '').trim(),
         role: String(form.get('role') || ''),
+        loginScope: String(form.get('loginScope') || 'both'),
         password: String(form.get('password') || '')
       })
     });
@@ -951,6 +973,7 @@ $('#changePasswordBtn').addEventListener('click', openPasswordModal);
 $('#reloadAdminBtn').addEventListener('click', (event) => loadAdminData(event.currentTarget).then(() => showToast('账号列表已刷新')).catch((error) => showToast(error.message)));
 $('#companyForm').addEventListener('submit', (event) => createCompany(event).catch((error) => showToast(error.message)));
 $('#userForm').addEventListener('submit', (event) => createUser(event).catch((error) => showToast(error.message)));
+$('#userRoleSelect').addEventListener('change', renderLoginScopeOptions);
 $('#userRows').addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button || button.disabled) return;

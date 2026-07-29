@@ -43,17 +43,18 @@ final class UserRepository
         return $user ?: null;
     }
 
-    public function createSession(int $userId, string $token, int $days): void
+    public function createSession(int $userId, string $token, int $days, string $clientType): void
     {
         $expiresAt = (new \DateTimeImmutable())
             ->modify('+' . max(1, $days) . ' days')
             ->format('Y-m-d H:i:s');
 
         $stmt = $this->pdo->prepare(
-            "INSERT INTO sessions (user_id, token_hash, expires_at)
-             VALUES (:user_id, :token_hash, :expires_at)"
+            "INSERT INTO sessions (user_id, client_type, token_hash, expires_at)
+             VALUES (:user_id, :client_type, :token_hash, :expires_at)"
         );
         $stmt->bindValue('user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue('client_type', $clientType);
         $stmt->bindValue('token_hash', hash('sha256', $token));
         $stmt->bindValue('expires_at', $expiresAt);
         $stmt->execute();
@@ -67,7 +68,7 @@ final class UserRepository
     {
         if ($actor['role'] === 'hq_admin') {
             $stmt = $this->pdo->query(
-                "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.status, u.last_login_at, u.created_at, u.updated_at
+                "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.status, u.last_login_at, u.created_at, u.updated_at
                  FROM users u
                  LEFT JOIN companies c ON c.id = u.company_id
                  ORDER BY u.id ASC"
@@ -76,7 +77,7 @@ final class UserRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.status, u.last_login_at, u.created_at, u.updated_at
+            "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.status, u.last_login_at, u.created_at, u.updated_at
              FROM users u
              LEFT JOIN companies c ON c.id = u.company_id
              WHERE u.company_id = :company_id
@@ -120,8 +121,8 @@ final class UserRepository
     public function createUser(array $user): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO users (company_id, name, phone, password_hash, role, status)
-             VALUES (:company_id, :name, :phone, :password_hash, :role, 'active')"
+            "INSERT INTO users (company_id, name, phone, password_hash, role, login_scope, status)
+             VALUES (:company_id, :name, :phone, :password_hash, :role, :login_scope, 'active')"
         );
         $stmt->execute([
             'company_id' => $user['company_id'],
@@ -129,6 +130,7 @@ final class UserRepository
             'phone' => $user['phone'],
             'password_hash' => $user['password_hash'],
             'role' => $user['role'],
+            'login_scope' => $user['login_scope'],
         ]);
         return (int) $this->pdo->lastInsertId();
     }

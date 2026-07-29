@@ -2,6 +2,9 @@
 
 淮北鑫远燃气隐患排查系统，包含手机 APP、手机 H5、电脑浏览器后台、PHP API 后端和 MySQL 数据库迁移脚本。
 
+当前 Android 版本为 `2.0.0`：登录后工作、检查记录实时保存到云端、APP
+仅显示本人录入的数据，并支持将旧版手机本地记录一次性迁移到云端。
+
 ## 目录结构
 
 ```text
@@ -40,3 +43,4 @@ docs/               部署、备份、换电脑恢复说明
 - [换电脑恢复](docs/RESTORE_ON_NEW_PC.md)
 - [换机交接清单](docs/NEW_PC_HANDOVER.md)
 - [备份与敏感信息](docs/BACKUP_AND_SECRETS.md)
+- [APP 2.0 云端化说明](docs/APP_CLOUD_FIRST_V2.md)

@@ -611,7 +611,8 @@ async function login() {
     method: 'POST',
     body: JSON.stringify({
       phone: $('#loginPhone').value.trim(),
-      password: $('#loginPassword').value
+      password: $('#loginPassword').value,
+      clientType: 'app'
     })
   });
   state.token = data.token;

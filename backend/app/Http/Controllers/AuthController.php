@@ -16,7 +16,8 @@ final class AuthController
     {
         return $this->auth->login(
             trim((string) $request->input('phone')),
-            (string) $request->input('password')
+            (string) $request->input('password'),
+            trim((string) $request->input('clientType', 'admin'))
         );
     }
 

@@ -184,6 +184,13 @@
                 <option value="hq_admin">总部管理员</option>
               </select>
             </label>
+            <label>允许登录端
+              <select name="loginScope" id="userLoginScopeSelect">
+                <option value="both">手机 APP + 电脑后台</option>
+                <option value="app">仅手机 APP</option>
+                <option value="admin">仅电脑后台</option>
+              </select>
+            </label>
             <label>初始密码
               <input name="password" type="password" placeholder="至少 8 位">
             </label>
@@ -217,6 +224,7 @@
                   <th>手机号</th>
                   <th>公司</th>
                   <th>角色</th>
+                  <th>登录端</th>
                   <th>状态</th>
                   <th>最后登录</th>
                   <th>操作</th>

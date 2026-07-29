@@ -47,6 +47,20 @@ final class RecordController
         return ['id' => $id];
     }
 
+    /** @return array<string, mixed> */
+    public function saveDraft(Request $request): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        return ['id' => $this->records->saveDraft($user, $request->json())];
+    }
+
+    /** @return array<string, mixed> */
+    public function submitDraft(Request $request): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        return ['id' => $this->records->submitDraft($user, $request->json())];
+    }
+
     /** @param array<string, string> $params @return array<string, mixed> */
     public function rectify(Request $request, array $params): array
     {
