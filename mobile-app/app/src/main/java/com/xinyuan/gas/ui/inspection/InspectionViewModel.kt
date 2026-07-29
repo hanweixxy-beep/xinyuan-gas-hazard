@@ -15,6 +15,7 @@ import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardRecord
 import com.xinyuan.gas.data.repository.InspectionRepository
 import com.xinyuan.gas.data.repository.TerminalHazardRepository
+import com.xinyuan.gas.data.sync.CloudApiException
 import com.xinyuan.gas.data.sync.CloudSessionStore
 import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudSettings
@@ -172,9 +173,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         terminalTodayCount = terminalRepo.todayCount(startOfDay)
 
         registerAutoSyncOnNetworkAvailable()
-        if (_cloudSettings.value.isLoggedIn) {
-            refreshCloudRecords()
-        }
+        if (_cloudSettings.value.isLoggedIn) refreshCloudSession()
     }
 
     fun setSearchQuery(query: String) { _searchQuery.value = query }
@@ -411,11 +410,46 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             result.fold(
                 onSuccess = { _cloudRecords.value = it },
                 onFailure = { error ->
-                    _dataActionMessage.emit("云端记录加载失败：${error.message ?: "未知错误"}")
+                    handleCloudFailure("云端记录加载失败", error)
                 }
             )
             _cloudRecordsLoading.value = false
         }
+    }
+
+    private fun refreshCloudSession() {
+        viewModelScope.launch {
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn) return@launch
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).fetchCurrentSession()
+            }
+            result.fold(
+                onSuccess = { session ->
+                    val refreshed = withContext(Dispatchers.IO) { cloudStore.save(session) }
+                    _cloudSettings.value = refreshed
+                    activeCloudClient = null
+                    activeCloudClientKey = ""
+                    refreshCloudRecords()
+                },
+                onFailure = { error ->
+                    handleCloudFailure("账号资料刷新失败", error)
+                }
+            )
+        }
+    }
+
+    private suspend fun handleCloudFailure(prefix: String, error: Throwable) {
+        if (error is CloudApiException && error.statusCode == 401) {
+            val cleared = withContext(Dispatchers.IO) { cloudStore.clear() }
+            _cloudSettings.value = cleared
+            _cloudRecords.value = emptyList()
+            activeCloudClient = null
+            activeCloudClientKey = ""
+            _dataActionMessage.emit("登录已过期，请重新登录")
+            return
+        }
+        _dataActionMessage.emit("$prefix：${error.message ?: "未知错误"}")
     }
 
     fun migrateLegacyRecords() {

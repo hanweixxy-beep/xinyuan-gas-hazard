@@ -61,12 +61,18 @@ data class CloudRecordSummary(
     val inspectorName: String
 )
 
+class CloudApiException(
+    val statusCode: Int,
+    message: String
+) : IllegalStateException(message)
+
 class CloudSessionStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("cloud_sync", Context.MODE_PRIVATE)
 
     fun load(): CloudSettings = CloudSettings(
-        baseUrl = prefs.getString("baseUrl", HttpCloudSyncClient.DEFAULT_BASE_URL).orEmpty()
-            .ifBlank { HttpCloudSyncClient.DEFAULT_BASE_URL },
+        baseUrl = HttpCloudSyncClient.normalizeBaseUrl(
+            prefs.getString("baseUrl", HttpCloudSyncClient.DEFAULT_BASE_URL).orEmpty()
+        ),
         token = prefs.getString("token", "").orEmpty(),
         userId = prefs.getLong("userId", 0L),
         userName = prefs.getString("userName", "").orEmpty(),
@@ -107,6 +113,7 @@ interface CloudSyncClient {
     suspend fun uploadTerminalHazardRecord(record: TerminalHazardRecord): Result<CloudSyncResult>
     suspend fun saveTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
     suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
+    suspend fun fetchCurrentSession(): Result<CloudLoginSession>
     suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>>
     suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult>
 }
@@ -139,6 +146,21 @@ class HttpCloudSyncClient(
         val remotePhotos = uploadTerminalPhotos(record)
         val data = postJson("/records/drafts/submit", buildTerminalPayload(record, remotePhotos))
         CloudSyncResult(remoteId = data.optLong("id").takeIf { it > 0L }?.toString().orEmpty())
+    }
+
+    override suspend fun fetchCurrentSession(): Result<CloudLoginSession> = runCatching {
+        val user = getJson("/auth/me").optJSONObject("user") ?: JSONObject()
+        CloudLoginSession(
+            baseUrl = apiBase,
+            token = token,
+            userId = user.optLong("id"),
+            userName = user.optString("name"),
+            userPhone = user.optString("phone"),
+            companyId = user.optLong("companyId"),
+            companyName = user.optString("companyName"),
+            role = user.optString("role"),
+            loginScope = user.optString("loginScope")
+        )
     }
 
     override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = runCatching {
@@ -291,7 +313,10 @@ class HttpCloudSyncClient(
         val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
         val root = text.takeIf { it.isNotBlank() }?.let { JSONObject(it) } ?: JSONObject()
         if (status !in 200..299 || !root.optBoolean("ok", false)) {
-            throw IllegalStateException(root.optString("message").ifBlank { "云端请求失败：HTTP $status" })
+            throw CloudApiException(
+                status,
+                root.optString("message").ifBlank { "云端请求失败：HTTP $status" }
+            )
         }
         return root.optJSONObject("data") ?: JSONObject()
     }
@@ -337,6 +362,13 @@ class HttpCloudSyncClient(
         fun normalizeBaseUrl(value: String): String {
             val trimmed = value.trim().trimEnd('/')
             if (trimmed.isBlank()) return DEFAULT_BASE_URL
+            if (trimmed.equals("http://124.220.26.188", true)
+                || trimmed.equals("http://124.220.26.188/api", true)
+                || trimmed.equals("https://124.220.26.188", true)
+                || trimmed.equals("https://124.220.26.188/api", true)
+            ) {
+                return DEFAULT_BASE_URL
+            }
             return if (trimmed.endsWith("/api", ignoreCase = true)) trimmed else "$trimmed/api"
         }
 
@@ -379,6 +411,8 @@ class NotConfiguredCloudSyncClient : CloudSyncClient {
     override suspend fun saveTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = notConfigured()
 
     override suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = notConfigured()
+
+    override suspend fun fetchCurrentSession(): Result<CloudLoginSession> = notConfigured()
 
     override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = notConfigured()
 
