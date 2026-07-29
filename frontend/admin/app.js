@@ -217,6 +217,9 @@ function updateUserSurface() {
   const label = `${state.user?.companyName || '未绑定公司'} · ${state.user?.name || ''} · ${roleLabel(state.user?.role)}`;
   $('#userBadge').textContent = label;
   $('#userBadge').classList.toggle('hidden', !state.user);
+  setText('#sidebarUserName', state.user?.name || '管理员');
+  setText('#sidebarCompanyName', state.user?.companyName || '淮北鑫远燃气');
+  updateDashboardGreeting();
   $('#homeBtn').disabled = !state.user;
   $('#changePasswordBtn').disabled = !state.user;
   $('#logoutBtn').disabled = !state.user;
@@ -233,7 +236,7 @@ function updateModuleAccess() {
   adminCard.classList.toggle('disabled', !isManager());
   const hint = adminCard.querySelector('em');
   if (hint) {
-    hint.textContent = isManager() ? '公司、人员、密码和状态' : '仅管理员账号可进入';
+    hint.textContent = isManager() ? '' : '无权限';
   }
 }
 
@@ -258,8 +261,18 @@ function showModule(moduleName = 'home') {
   document.querySelectorAll('.module-panel').forEach((panel) => {
     panel.classList.toggle('hidden', panel.id !== moduleId(nextModule));
   });
-  $('#homeBtn').classList.toggle('hidden', nextModule === 'home');
-  $('#refreshBtn').textContent = nextModule === 'admin' ? '刷新账号' : '刷新记录';
+  document.querySelectorAll('#sideNav [data-module]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.module === nextModule);
+  });
+  const titles = {
+    home: '工作总览',
+    records: '检查记录',
+    export: '数据导出',
+    admin: '公司与账号',
+    help: '使用说明'
+  };
+  setText('#adminPageTitle', titles[nextModule] || '工作总览');
+  $('#refreshBtn').textContent = nextModule === 'admin' ? '刷新账号' : '刷新';
 }
 
 async function openModule(moduleName) {
@@ -284,10 +297,28 @@ async function refreshCurrentModule(button = null) {
   showToast('记录已刷新');
 }
 
+function greetingForHour(hour) {
+  if (hour >= 5 && hour < 10) return '早上好';
+  if (hour >= 10 && hour < 12) return '上午好';
+  if (hour >= 12 && hour < 18) return '下午好';
+  return '晚上好';
+}
+
+function updateDashboardGreeting(now = new Date()) {
+  const dateTime = [
+    `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`,
+    `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  ].join(' ');
+  setText('#dashboardGreeting', greetingForHour(now.getHours()));
+  setText('#dashboardGreetingName', state.user?.name || '管理员');
+  setText('#dashboardUpdatedAt', `截至 ${dateTime} 的数据概况`);
+}
+
 function updateRecordCounters(records) {
   const total = records.length;
   const pending = records.filter((item) => item.status === 'pending').length;
   const done = records.filter((item) => item.status !== 'pending').length;
+  const rate = total > 0 ? Math.round((done / total) * 100) : 0;
 
   setText('#totalCount', total);
   setText('#pendingCount', pending);
@@ -295,6 +326,37 @@ function updateRecordCounters(records) {
   setText('#recordsTotalCount', total);
   setText('#recordsPendingCount', pending);
   setText('#recordsDoneCount', done);
+  setText('#closureRate', `${rate}%`);
+  setText('#closureRateRing', `${rate}%`);
+  setText('#homePendingLegend', pending);
+  setText('#homeDoneLegend', done);
+  updateDashboardGreeting();
+}
+
+function renderDashboard(records = []) {
+  const counts = records.reduce((result, record) => {
+    const date = String(record.inspection_date || '').slice(0, 10);
+    if (date) result.set(date, (result.get(date) || 0) + 1);
+    return result;
+  }, new Map());
+  const recent = [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).slice(-7);
+  const maxCount = Math.max(1, ...recent.map(([, count]) => count));
+  $('#dashboardTrend').innerHTML = recent.map(([date, value]) => {
+    const height = Math.max(14, Math.round((value / maxCount) * 132));
+    return `<div class="trend-bar"><b>${value}</b><i style="height:${height}px"></i><span>${escapeHtml(date)}</span></div>`;
+  }).join('') || '<p class="muted">暂无趋势数据</p>';
+
+  const pendingRecords = records.filter((record) => record.status === 'pending').slice(0, 5);
+  $('#dashboardPendingRows').innerHTML = pendingRecords.map((record) => `
+    <tr>
+      <td>${escapeHtml(record.customer_name || '-')}</td>
+      <td>${escapeHtml(record.customer_address || '-')}</td>
+      <td>${escapeHtml(record.inspection_date || '-')}</td>
+      <td>${escapeHtml(record.inspector_name || '-')}</td>
+      <td><span class="status pending">待整改</span></td>
+      <td><button type="button" class="detail-button" data-dashboard-record-id="${record.id}">详情</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="6">暂无待整改记录</td></tr>';
 }
 
 function statusClass(record) {
@@ -330,6 +392,7 @@ async function loadRecords(button = null, busyText = '正在刷新...') {
     state.recordPage = 1;
     updateRecordCounters(records);
     renderRows();
+    renderDashboard(records);
   });
 }
 
@@ -376,6 +439,7 @@ async function loadAdminData(button = null) {
 
 function renderAdminPanel() {
   $('#companyForm').classList.toggle('hidden', !isHqAdmin());
+  $('#companyCreateBlock').classList.toggle('hidden', !isHqAdmin());
   $('#companyListBlock').classList.toggle('hidden', !isHqAdmin());
   renderCompanyOptions();
   renderRoleOptions();
@@ -960,11 +1024,18 @@ async function submitRectification(event) {
 
 $('#loginBtn').addEventListener('click', (event) => login(event.currentTarget).catch((error) => showToast(error.message)));
 $('#logoutBtn').addEventListener('click', logout);
-$('#homeBtn').addEventListener('click', () => showModule('home'));
-document.querySelector('.module-grid').addEventListener('click', (event) => {
+$('#sideNav').addEventListener('click', (event) => {
   const button = event.target.closest('[data-module]');
   if (!button || button.disabled) return;
   openModule(button.dataset.module).catch((error) => showToast(error.message));
+});
+document.querySelectorAll('[data-open-module]').forEach((button) => {
+  button.addEventListener('click', () => openModule(button.dataset.openModule).catch((error) => showToast(error.message)));
+});
+$('#dashboardPendingRows').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-dashboard-record-id]');
+  if (!button) return;
+  openDetail(button.dataset.dashboardRecordId, button).catch((error) => showToast(error.message));
 });
 $('#refreshBtn').addEventListener('click', (event) => refreshCurrentModule(event.currentTarget).catch((error) => showToast(error.message)));
 $('#exportBtn').addEventListener('click', (event) => exportRecords(event.currentTarget).catch((error) => showToast(error.message)));
@@ -1024,6 +1095,9 @@ $('#passwordModal').addEventListener('click', (event) => {
 $('#passwordForm').addEventListener('submit', (event) => submitPasswordChange(event).catch((error) => showToast(error.message)));
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closePhotoPreview();
+  if (event.key === 'Enter' && !$('#loginPanel').classList.contains('hidden') && event.target.matches('#loginPhone, #loginPassword')) {
+    login($('#loginBtn')).catch((error) => showToast(error.message));
+  }
 });
 
 updateUserSurface();
