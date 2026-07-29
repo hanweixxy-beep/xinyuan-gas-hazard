@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -78,6 +81,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xinyuan.gas.BuildConfig
 import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudRecordDetail
 import com.xinyuan.gas.data.sync.CloudSettings
@@ -431,6 +435,7 @@ private fun MigrationNumber(value: String, label: String) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CloudShell(
     viewModel: InspectionViewModel,
@@ -441,24 +446,27 @@ private fun CloudShell(
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(CloudTab.HOME) }
     var formSessionKey by rememberSaveable { mutableStateOf(0) }
+    val keyboardVisible = WindowInsets.isImeVisible
     Scaffold(
         containerColor = GrayBackground,
         bottomBar = {
-            NavigationBar(containerColor = Color.White) {
-                CloudTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = BrandGreenStrong,
-                            selectedTextColor = BrandGreenStrong,
-                            indicatorColor = BrandGreenSoft,
-                            unselectedIconColor = GrayTertiaryText,
-                            unselectedTextColor = GrayTertiaryText
+            if (!keyboardVisible) {
+                NavigationBar(containerColor = Color.White) {
+                    CloudTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = BrandGreenStrong,
+                                selectedTextColor = BrandGreenStrong,
+                                indicatorColor = BrandGreenSoft,
+                                unselectedIconColor = GrayTertiaryText,
+                                unselectedTextColor = GrayTertiaryText
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -1036,7 +1044,7 @@ private fun CloudProfileScreen(
                     )
                 }
                 HorizontalDivider(color = GraySeparator)
-                ProfileAction(Icons.Default.Shield, "关于应用", "云端版 v2.0.1")
+                ProfileAction(Icons.Default.Shield, "关于应用", "云端版 v${BuildConfig.VERSION_NAME}")
             }
         }
         item {
