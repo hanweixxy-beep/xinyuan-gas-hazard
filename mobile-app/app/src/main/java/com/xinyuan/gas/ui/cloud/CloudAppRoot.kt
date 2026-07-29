@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -60,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xinyuan.gas.data.sync.CloudRecordSummary
+import com.xinyuan.gas.data.sync.CloudRecordDetail
 import com.xinyuan.gas.data.sync.CloudSettings
 import com.xinyuan.gas.data.sync.HttpCloudSyncClient
 import com.xinyuan.gas.ui.components.BrandLogo
@@ -97,6 +100,7 @@ import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
 import kotlinx.coroutines.flow.collectLatest
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -120,8 +124,6 @@ fun CloudAppRoot(viewModel: InspectionViewModel) {
     var migrationAcknowledged by rememberSaveable {
         mutableStateOf(migrationPrefs.getBoolean("acknowledged", false))
     }
-    var showForm by rememberSaveable { mutableStateOf(false) }
-
     LaunchedEffect(Unit) {
         viewModel.dataActionMessage.collectLatest { message ->
             if (message.isNotBlank()) {
@@ -148,19 +150,11 @@ fun CloudAppRoot(viewModel: InspectionViewModel) {
                 migrationPrefs.edit().putBoolean("acknowledged", true).apply()
             }
         )
-        showForm -> TerminalHazardFormScreen(
-            viewModel = viewModel,
-            onBack = {
-                showForm = false
-                viewModel.refreshCloudRecords()
-            }
-        )
         else -> CloudShell(
             viewModel = viewModel,
             settings = settings,
             legacyCount = legacyCount,
             legacyUnsynced = legacyUnsynced,
-            onNewRecord = { showForm = true },
             onShowMigration = {
                 migrationAcknowledged = false
                 migrationPrefs.edit().putBoolean("acknowledged", false).apply()
@@ -443,10 +437,10 @@ private fun CloudShell(
     settings: CloudSettings,
     legacyCount: Int,
     legacyUnsynced: Int,
-    onNewRecord: () -> Unit,
     onShowMigration: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(CloudTab.HOME) }
+    var formSessionKey by rememberSaveable { mutableStateOf(0) }
     Scaffold(
         containerColor = GrayBackground,
         bottomBar = {
@@ -454,9 +448,7 @@ private fun CloudShell(
                 CloudTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = {
-                            if (tab == CloudTab.REGISTER) onNewRecord() else selectedTab = tab
-                        },
+                        onClick = { selectedTab = tab },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
                         label = { Text(tab.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -477,7 +469,7 @@ private fun CloudShell(
                 .padding(padding)
         ) {
             when (selectedTab) {
-                CloudTab.HOME -> CloudHomeScreen(viewModel, settings, onNewRecord) {
+                CloudTab.HOME -> CloudHomeScreen(viewModel, settings, { selectedTab = CloudTab.REGISTER }) {
                     selectedTab = CloudTab.RECORDS
                 }
                 CloudTab.RECORDS -> CloudRecordsScreen(viewModel)
@@ -489,6 +481,25 @@ private fun CloudShell(
                     onShowMigration = onShowMigration
                 )
                 CloudTab.REGISTER -> Unit
+            }
+            key(formSessionKey) {
+                TerminalHazardFormScreen(
+                    viewModel = viewModel,
+                    modifier = if (selectedTab == CloudTab.REGISTER) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier.size(0.dp)
+                    },
+                    onBack = {
+                        formSessionKey += 1
+                        selectedTab = CloudTab.HOME
+                    },
+                    onSaved = {
+                        formSessionKey += 1
+                        viewModel.refreshCloudRecords()
+                        selectedTab = CloudTab.RECORDS
+                    }
+                )
             }
         }
     }
@@ -503,7 +514,17 @@ private fun CloudHomeScreen(
 ) {
     val records by viewModel.cloudRecords.collectAsState()
     val loading by viewModel.cloudRecordsLoading.collectAsState()
-    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date()) }
+    val connection by viewModel.cloudConnectionState.collectAsState()
+    val today = remember { SimpleDateFormat("yyyy-MM-dd EEEE", Locale.CHINA).format(Date()) }
+    val greeting = remember {
+        when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 0..10 -> "上午好"
+            in 11..13 -> "中午好"
+            in 14..17 -> "下午好"
+            else -> "晚上好"
+        }
+    }
+    val networkAvailable = viewModel.isNetworkAvailable()
     val todayCount = records.count { it.inspectionDate == today }
     val pendingCount = records.count { it.status == "pending" }
 
@@ -517,44 +538,67 @@ private fun CloudHomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(today, color = GrayTertiaryText, style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        "上午好，${settings.userName}",
-                        color = InkPrimary,
-                        fontFamily = FontFamily.Serif,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Surface(shape = CircleShape, color = InkPrimary) {
+                        Text(
+                            settings.userName.take(1).ifBlank { "鑫" },
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        )
+                    }
                 }
-                Surface(shape = CircleShape, color = InkPrimary) {
-                    Text(
-                        settings.userName.take(1).ifBlank { "鑫" },
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(13.dp)
-                    )
-                }
+                Text(
+                    "$greeting，${settings.userName}",
+                    color = InkPrimary,
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 26.sp,
+                    lineHeight = 34.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    modifier = Modifier.padding(top = 8.dp, end = 8.dp)
+                )
             }
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (viewModel.isNetworkAvailable()) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                    contentDescription = null,
-                    tint = if (viewModel.isNetworkAvailable()) GreenSuccess else RedDanger,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    if (viewModel.isNetworkAvailable()) "  已连接云端 · 仅显示我的数据" else "  网络不可用 · 新记录不能提交",
-                    color = InkSecondary,
-                    style = MaterialTheme.typography.bodySmall
-                )
+            val connected = networkAvailable && connection.verified == true
+            val statusText = when {
+                !networkAvailable -> "网络不可用，记录暂时不能上传"
+                connection.verified == true -> "云端连接正常 · 数据已同步"
+                connection.verified == false -> "云端连接异常 · 点击重新检查"
+                else -> "正在验证云端连接"
+            }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.refreshCloudRecords() },
+                color = if (connected) BrandGreenSoft else Color.White,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (connected) BrandGreenSoft else GraySeparator)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (connected) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = if (connected) GreenSuccess else RedDanger,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        statusText,
+                        color = InkSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
             }
         }
         item {
@@ -624,7 +668,7 @@ private fun CloudHomeScreen(
             }
         } else {
             items(records.take(3), key = { it.id }) { record ->
-                CloudRecordCard(record)
+                CloudRecordCard(record, onClick = onOpenRecords)
             }
         }
     }
@@ -651,6 +695,9 @@ private fun CloudRecordsScreen(viewModel: InspectionViewModel) {
     val loading by viewModel.cloudRecordsLoading.collectAsState()
     var keyword by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf("") }
+    var detailRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val detail by viewModel.cloudRecordDetail.collectAsState()
+    val detailLoading by viewModel.cloudRecordDetailLoading.collectAsState()
     val filtered = records.filter { record ->
         val matchesKeyword = keyword.isBlank() ||
             record.customerName.contains(keyword, true) ||
@@ -722,7 +769,12 @@ private fun CloudRecordsScreen(viewModel: InspectionViewModel) {
                 )
             }
         } else {
-            items(filtered, key = { it.id }) { CloudRecordCard(it) }
+            items(filtered, key = { it.id }) { record ->
+                CloudRecordCard(record) {
+                    detailRecordId = record.id
+                    viewModel.loadCloudRecordDetail(record.id)
+                }
+            }
         }
         item {
             Surface(color = GraySurface, shape = RoundedCornerShape(8.dp)) {
@@ -734,6 +786,17 @@ private fun CloudRecordsScreen(viewModel: InspectionViewModel) {
                 )
             }
         }
+    }
+
+    if (detailRecordId != null) {
+        CloudRecordDetailDialog(
+            detail = detail,
+            loading = detailLoading,
+            onDismiss = {
+                detailRecordId = null
+                viewModel.clearCloudRecordDetail()
+            }
+        )
     }
 }
 
@@ -759,9 +822,11 @@ private fun StatusFilter(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CloudRecordCard(record: CloudRecordSummary) {
+private fun CloudRecordCard(record: CloudRecordSummary, onClick: (() -> Unit)? = null) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         color = Color.White,
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, GraySeparator)
@@ -801,6 +866,64 @@ private fun CloudRecordCard(record: CloudRecordSummary) {
 }
 
 @Composable
+private fun CloudRecordDetailDialog(
+    detail: CloudRecordDetail?,
+    loading: Boolean,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(detail?.customerName ?: "记录详情") },
+        text = {
+            if (loading || detail == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = BrandGreen)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    item { DetailLine("电话", detail.customerPhone) }
+                    item { DetailLine("用户类型", detail.customerType) }
+                    item { DetailLine("地址", detail.customerAddress) }
+                    item { DetailLine("检查日期", detail.inspectionDate) }
+                    item { DetailLine("检查人", detail.inspectorName) }
+                    item { DetailLine("配送员", detail.deliveryPerson) }
+                    item { DetailLine("检查结果", detail.checkResult) }
+                    if (detail.hazardItems.isNotEmpty()) {
+                        item { DetailLine("隐患项目", detail.hazardItems.joinToString("；")) }
+                    }
+                    if (detail.gasSourceIssues.isNotEmpty()) {
+                        item { DetailLine("气源排查", detail.gasSourceIssues.joinToString("；")) }
+                    }
+                    item { DetailLine("照片", "${detail.photoPaths.size} 张") }
+                    if (detail.remark.isNotBlank()) item { DetailLine("备注", detail.remark) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭", color = BrandGreenStrong) }
+        },
+        shape = RoundedCornerShape(8.dp),
+        containerColor = Color.White
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Column {
+        Text(label, color = GrayTertiaryText, style = MaterialTheme.typography.bodySmall)
+        Text(value.ifBlank { "-" }, color = InkPrimary, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 private fun StatusBadge(status: String) {
     val pending = status == "pending"
     Surface(
@@ -825,6 +948,15 @@ private fun CloudProfileScreen(
     legacyUnsynced: Int,
     onShowMigration: () -> Unit
 ) {
+    var showPasswordDialog by rememberSaveable { mutableStateOf(false) }
+    val changingPassword by viewModel.cloudPasswordChangeInProgress.collectAsState()
+    val connection by viewModel.cloudConnectionState.collectAsState()
+    val dataScope = when (settings.role) {
+        "hq_admin" -> "全部公司数据"
+        "company_admin" -> "本公司数据"
+        else -> "仅本人录入"
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -865,7 +997,7 @@ private fun CloudProfileScreen(
                     Column(modifier = Modifier.padding(start = 14.dp)) {
                         Text(settings.userName, color = Color.White, style = MaterialTheme.typography.titleLarge)
                         Text(settings.companyName, color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.bodyMedium)
-                        Text("APP 账号 · 仅本人数据", color = BrandGreenSoft, style = MaterialTheme.typography.bodySmall)
+                        Text("APP 账号 · $dataScope", color = BrandGreenSoft, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -873,13 +1005,27 @@ private fun CloudProfileScreen(
         item {
             CloudCard {
                 AccountInfoRow("手机号", maskPhone(settings.userPhone))
-                AccountInfoRow("数据权限", "仅本人录入")
-                AccountInfoRow("云端状态", if (viewModel.isNetworkAvailable()) "已连接" else "未连接", GreenSuccess)
+                AccountInfoRow("数据权限", dataScope)
+                AccountInfoRow(
+                    "云端状态",
+                    when {
+                        !viewModel.isNetworkAvailable() -> "网络不可用"
+                        connection.verified == true -> "连接正常"
+                        connection.verified == false -> "连接异常"
+                        else -> "正在检查"
+                    },
+                    if (connection.verified == true) GreenSuccess else InkSecondary
+                )
             }
         }
         item {
             CloudCard {
-                ProfileAction(Icons.Default.Key, "修改密码", "请在电脑后台操作")
+                ProfileAction(
+                    Icons.Default.Key,
+                    "修改密码",
+                    "在手机端更新",
+                    onClick = { showPasswordDialog = true }
+                )
                 if (legacyCount > 0) {
                     HorizontalDivider(color = GraySeparator)
                     ProfileAction(
@@ -890,7 +1036,7 @@ private fun CloudProfileScreen(
                     )
                 }
                 HorizontalDivider(color = GraySeparator)
-                ProfileAction(Icons.Default.Shield, "关于应用", "云端版 v2.0")
+                ProfileAction(Icons.Default.Shield, "关于应用", "云端版 v2.0.1")
             }
         }
         item {
@@ -915,6 +1061,97 @@ private fun CloudProfileScreen(
             )
         }
     }
+
+    if (showPasswordDialog) {
+        ChangePasswordDialog(
+            changing = changingPassword,
+            onDismiss = { if (!changingPassword) showPasswordDialog = false },
+            onConfirm = viewModel::changeCloudPassword
+        )
+    }
+}
+
+@Composable
+private fun ChangePasswordDialog(
+    changing: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit
+) {
+    var currentPassword by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+    var confirmPassword by rememberSaveable { mutableStateOf("") }
+    var error by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("修改密码") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PasswordField("当前密码", currentPassword) { currentPassword = it }
+                PasswordField("新密码（至少 8 位）", newPassword) { newPassword = it }
+                PasswordField("再次输入新密码", confirmPassword) { confirmPassword = it }
+                if (error.isNotBlank()) {
+                    Text(error, color = RedDanger, style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    "修改成功后需要使用新密码重新登录。",
+                    color = InkSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !changing) {
+                Text("取消", color = InkSecondary)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    error = when {
+                        currentPassword.isBlank() -> "请输入当前密码"
+                        newPassword.length < 8 -> "新密码至少 8 位"
+                        newPassword != confirmPassword -> "两次输入的新密码不一致"
+                        newPassword == currentPassword -> "新密码不能与当前密码相同"
+                        else -> ""
+                    }
+                    if (error.isBlank()) onConfirm(currentPassword, newPassword)
+                },
+                enabled = !changing,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+            ) {
+                if (changing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("确认修改")
+                }
+            }
+        },
+        shape = RoundedCornerShape(8.dp),
+        containerColor = Color.White
+    )
+}
+
+@Composable
+private fun PasswordField(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        shape = RoundedCornerShape(8.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = BrandGreen,
+            unfocusedBorderColor = GraySeparator
+        )
+    )
 }
 
 @Composable

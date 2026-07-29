@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -56,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -101,13 +104,18 @@ import java.util.UUID
 fun TerminalHazardFormScreen(
     viewModel: InspectionViewModel,
     onBack: () -> Unit,
+    onSaved: () -> Unit = onBack,
+    modifier: Modifier = Modifier,
     editRecordId: Long = 0L
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val formScrollState = rememberScrollState()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
     val prefs = remember { context.getSharedPreferences("gas_prefs", android.content.Context.MODE_PRIVATE) }
     val cloudSettings by viewModel.cloudSettings.collectAsState()
     val cloudSaveState by viewModel.cloudSaveState.collectAsState()
+    val cloudSubmitInProgress by viewModel.cloudSubmitInProgress.collectAsState()
     var draftUuid by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var draftCreated by rememberSaveable { mutableStateOf(false) }
 
@@ -412,8 +420,8 @@ fun TerminalHazardFormScreen(
         viewModel.terminalSaveResult.collectLatest { result ->
             result.fold(
                 onSuccess = {
-                    Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
-                    onBack()
+                    Toast.makeText(context, "记录已提交到云端", Toast.LENGTH_SHORT).show()
+                    onSaved()
                 },
                 onFailure = {
                     Toast.makeText(context, "保存失败: ${it.message}", Toast.LENGTH_SHORT).show()
@@ -422,7 +430,13 @@ fun TerminalHazardFormScreen(
         }
     }
 
+    LaunchedEffect(currentStep) {
+        focusManager.clearFocus(force = true)
+        formScrollState.scrollTo(0)
+    }
+
     Scaffold(
+        modifier = modifier.imePadding(),
         topBar = {
             IOSTopBar(
                 title = if (editRecordId > 0) "编辑检查" else "新增检查",
@@ -432,6 +446,7 @@ fun TerminalHazardFormScreen(
         bottomBar = {
             FormActionBar(
                 step = currentStep,
+                submitting = cloudSubmitInProgress,
                 onCancel = onBack,
                 onPrevious = { currentStep = (currentStep - 1).coerceAtLeast(0) },
                 onNext = {
@@ -463,7 +478,7 @@ fun TerminalHazardFormScreen(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(formScrollState)
                     .padding(horizontal = 18.dp)
             ) {
                 when (currentStep) {
@@ -962,6 +977,7 @@ private fun InspectionStepper(currentStep: Int) {
 @Composable
 private fun FormActionBar(
     step: Int,
+    submitting: Boolean,
     onCancel: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -978,24 +994,40 @@ private fun FormActionBar(
         ) {
             OutlinedButton(
                 onClick = if (step == 0) onCancel else onPrevious,
+                enabled = !submitting,
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1.15f)
                     .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(8.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, GraySeparator),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandGreenStrong)
             ) {
-                Text(if (step == 0) "取消" else if (step == 2) "返回修改" else "上一步")
+                Text(
+                    if (step == 0) "取消" else if (step == 2) "返回修改" else "上一步",
+                    maxLines = 1,
+                    softWrap = false,
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
             Button(
                 onClick = if (step == 2) onSubmit else onNext,
+                enabled = !submitting,
                 modifier = Modifier
-                    .weight(2f)
+                    .weight(1.85f)
                     .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
             ) {
-                Text(if (step == 2) "提交记录" else "下一步", style = MaterialTheme.typography.labelLarge)
+                if (submitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(19.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Text("  正在提交", style = MaterialTheme.typography.labelLarge)
+                } else {
+                    Text(if (step == 2) "提交记录" else "下一步", style = MaterialTheme.typography.labelLarge)
+                }
             }
         }
     }

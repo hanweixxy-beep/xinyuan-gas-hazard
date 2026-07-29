@@ -377,6 +377,15 @@ final class RecordRepository
     /** @param array<string, mixed> $user @return array{0:string,1:array<string,mixed>} */
     private function scopeCondition(array $user, string $alias): array
     {
+        if (($user['role'] ?? '') === 'hq_admin') {
+            return ['1 = 1', []];
+        }
+        if (($user['role'] ?? '') === 'company_admin') {
+            return [
+                "{$alias}.company_id = :scope_company_id",
+                ['scope_company_id' => (int) $user['company_id']],
+            ];
+        }
         return ["{$alias}.creator_id = :creator_id", ['creator_id' => (int) $user['id']]];
     }
 

@@ -16,6 +16,7 @@ import com.xinyuan.gas.data.model.TerminalHazardRecord
 import com.xinyuan.gas.data.repository.InspectionRepository
 import com.xinyuan.gas.data.repository.TerminalHazardRepository
 import com.xinyuan.gas.data.sync.CloudApiException
+import com.xinyuan.gas.data.sync.CloudRecordDetail
 import com.xinyuan.gas.data.sync.CloudSessionStore
 import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudSettings
@@ -44,6 +45,11 @@ data class CloudSaveUiState(
     val status: CloudSaveStatus = CloudSaveStatus.IDLE,
     val message: String = "",
     val savedAt: Long = 0L
+)
+
+data class CloudConnectionUiState(
+    val verified: Boolean? = null,
+    val message: String = "正在验证云端连接"
 )
 
 class InspectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -77,11 +83,26 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _cloudRecordsLoading = MutableStateFlow(false)
     val cloudRecordsLoading: StateFlow<Boolean> = _cloudRecordsLoading.asStateFlow()
 
+    private val _cloudRecordDetail = MutableStateFlow<CloudRecordDetail?>(null)
+    val cloudRecordDetail: StateFlow<CloudRecordDetail?> = _cloudRecordDetail.asStateFlow()
+
+    private val _cloudRecordDetailLoading = MutableStateFlow(false)
+    val cloudRecordDetailLoading: StateFlow<Boolean> = _cloudRecordDetailLoading.asStateFlow()
+
     private val _cloudLoginInProgress = MutableStateFlow(false)
     val cloudLoginInProgress: StateFlow<Boolean> = _cloudLoginInProgress.asStateFlow()
 
+    private val _cloudPasswordChangeInProgress = MutableStateFlow(false)
+    val cloudPasswordChangeInProgress: StateFlow<Boolean> = _cloudPasswordChangeInProgress.asStateFlow()
+
+    private val _cloudConnectionState = MutableStateFlow(CloudConnectionUiState())
+    val cloudConnectionState: StateFlow<CloudConnectionUiState> = _cloudConnectionState.asStateFlow()
+
     private val _cloudSaveState = MutableStateFlow(CloudSaveUiState())
     val cloudSaveState: StateFlow<CloudSaveUiState> = _cloudSaveState.asStateFlow()
+
+    private val _cloudSubmitInProgress = MutableStateFlow(false)
+    val cloudSubmitInProgress: StateFlow<Boolean> = _cloudSubmitInProgress.asStateFlow()
 
     private val _legacyMigrationRunning = MutableStateFlow(false)
     val legacyMigrationRunning: StateFlow<Boolean> = _legacyMigrationRunning.asStateFlow()
@@ -215,6 +236,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun saveTerminalRecord(record: TerminalHazardRecord) {
         viewModelScope.launch {
+            if (_cloudSubmitInProgress.value) return@launch
             val settings = _cloudSettings.value
             if (!settings.isLoggedIn) {
                 _terminalSaveResult.emit(Result.failure(IllegalStateException("请先登录 APP 账号")))
@@ -229,12 +251,14 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 return@launch
             }
 
+            _cloudSubmitInProgress.value = true
             _cloudSaveState.value = CloudSaveUiState(CloudSaveStatus.SAVING, "正在提交到云端")
             val result = withContext(Dispatchers.IO) {
                 cloudClient(settings).submitTerminalDraft(record)
             }
             result.fold(
                 onSuccess = { syncResult ->
+                    markCloudRequestSuccess()
                     _cloudSaveState.value = CloudSaveUiState(
                         status = CloudSaveStatus.SAVED,
                         message = "已提交到云端",
@@ -247,6 +271,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     _terminalSaveResult.emit(Result.success(syncResult.remoteId.toLongOrNull() ?: 0L))
                 },
                 onFailure = { error ->
+                    markCloudRequestFailure(error)
                     _cloudSaveState.value = CloudSaveUiState(
                         status = CloudSaveStatus.ERROR,
                         message = error.message ?: "提交失败"
@@ -254,6 +279,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     _terminalSaveResult.emit(Result.failure(error))
                 }
             )
+            _cloudSubmitInProgress.value = false
         }
     }
 
@@ -277,6 +303,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             }
             result.fold(
                 onSuccess = {
+                    markCloudRequestSuccess()
                     _cloudSaveState.value = CloudSaveUiState(
                         status = CloudSaveStatus.SAVED,
                         message = "草稿已保存到云端",
@@ -284,6 +311,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 },
                 onFailure = { error ->
+                    markCloudRequestFailure(error)
                     _cloudSaveState.value = CloudSaveUiState(
                         status = CloudSaveStatus.ERROR,
                         message = error.message ?: "云端保存失败"
@@ -375,6 +403,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     cloudStore.save(session)
                 }
                 _cloudSettings.value = settings
+                markCloudRequestSuccess()
                 _dataActionMessage.emit("云端登录成功：${settings.userName.ifBlank { "已登录" }}")
                 activeCloudClient = null
                 activeCloudClientKey = ""
@@ -392,7 +421,9 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             val settings = withContext(Dispatchers.IO) { cloudStore.clear() }
             _cloudSettings.value = settings
             _cloudRecords.value = emptyList()
+            _cloudRecordDetail.value = null
             _cloudSaveState.value = CloudSaveUiState()
+            _cloudConnectionState.value = CloudConnectionUiState()
             activeCloudClient = null
             activeCloudClientKey = ""
             _dataActionMessage.emit("已退出云端账号")
@@ -408,7 +439,10 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 cloudClient(settings).fetchTerminalRecords()
             }
             result.fold(
-                onSuccess = { _cloudRecords.value = it },
+                onSuccess = {
+                    _cloudRecords.value = it
+                    markCloudRequestSuccess()
+                },
                 onFailure = { error ->
                     handleCloudFailure("云端记录加载失败", error)
                 }
@@ -426,6 +460,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             }
             result.fold(
                 onSuccess = { session ->
+                    markCloudRequestSuccess()
                     val refreshed = withContext(Dispatchers.IO) { cloudStore.save(session) }
                     _cloudSettings.value = refreshed
                     activeCloudClient = null
@@ -439,17 +474,88 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun loadCloudRecordDetail(id: Long) {
+        viewModelScope.launch {
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn || _cloudRecordDetailLoading.value) return@launch
+            _cloudRecordDetail.value = null
+            _cloudRecordDetailLoading.value = true
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).fetchTerminalRecord(id)
+            }
+            result.fold(
+                onSuccess = {
+                    _cloudRecordDetail.value = it
+                    markCloudRequestSuccess()
+                },
+                onFailure = { error ->
+                    handleCloudFailure("记录详情加载失败", error)
+                }
+            )
+            _cloudRecordDetailLoading.value = false
+        }
+    }
+
+    fun clearCloudRecordDetail() {
+        _cloudRecordDetail.value = null
+    }
+
+    fun changeCloudPassword(currentPassword: String, newPassword: String) {
+        viewModelScope.launch {
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn || _cloudPasswordChangeInProgress.value) return@launch
+            _cloudPasswordChangeInProgress.value = true
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).changePassword(currentPassword, newPassword)
+            }
+            result.fold(
+                onSuccess = {
+                    val cleared = withContext(Dispatchers.IO) { cloudStore.clear() }
+                    _cloudSettings.value = cleared
+                    _cloudRecords.value = emptyList()
+                    _cloudRecordDetail.value = null
+                    _cloudConnectionState.value = CloudConnectionUiState()
+                    activeCloudClient = null
+                    activeCloudClientKey = ""
+                    _dataActionMessage.emit("密码修改成功，请使用新密码重新登录")
+                },
+                onFailure = { error ->
+                    markCloudRequestFailure(error)
+                    _dataActionMessage.emit("密码修改失败：${error.message ?: "未知错误"}")
+                }
+            )
+            _cloudPasswordChangeInProgress.value = false
+        }
+    }
+
     private suspend fun handleCloudFailure(prefix: String, error: Throwable) {
+        markCloudRequestFailure(error)
         if (error is CloudApiException && error.statusCode == 401) {
             val cleared = withContext(Dispatchers.IO) { cloudStore.clear() }
             _cloudSettings.value = cleared
             _cloudRecords.value = emptyList()
+            _cloudRecordDetail.value = null
             activeCloudClient = null
             activeCloudClientKey = ""
             _dataActionMessage.emit("登录已过期，请重新登录")
             return
         }
         _dataActionMessage.emit("$prefix：${error.message ?: "未知错误"}")
+    }
+
+    private fun markCloudRequestSuccess() {
+        _cloudConnectionState.value = CloudConnectionUiState(
+            verified = true,
+            message = "云端连接正常"
+        )
+    }
+
+    private fun markCloudRequestFailure(error: Throwable) {
+        val serverReached = error is CloudApiException && error.statusCode in 400..499
+        _cloudConnectionState.value = CloudConnectionUiState(
+            verified = if (serverReached) true else false,
+            message = if (serverReached) "云端连接正常，请检查填写内容" else "云端连接异常"
+        )
     }
 
     fun migrateLegacyRecords() {

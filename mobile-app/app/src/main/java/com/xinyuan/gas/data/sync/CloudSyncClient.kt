@@ -61,6 +61,24 @@ data class CloudRecordSummary(
     val inspectorName: String
 )
 
+data class CloudRecordDetail(
+    val id: Long,
+    val customerName: String,
+    val customerPhone: String,
+    val customerType: String,
+    val customerAddress: String,
+    val inspectionDate: String,
+    val checkResult: String,
+    val status: String,
+    val inspectorName: String,
+    val deliveryPerson: String,
+    val remark: String,
+    val locationAddress: String,
+    val hazardItems: List<String>,
+    val gasSourceIssues: List<String>,
+    val photoPaths: List<String>
+)
+
 class CloudApiException(
     val statusCode: Int,
     message: String
@@ -115,6 +133,8 @@ interface CloudSyncClient {
     suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
     suspend fun fetchCurrentSession(): Result<CloudLoginSession>
     suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>>
+    suspend fun fetchTerminalRecord(id: Long): Result<CloudRecordDetail>
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit>
     suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult>
 }
 
@@ -182,6 +202,39 @@ class HttpCloudSyncClient(
                 )
             }
         }
+    }
+
+    override suspend fun fetchTerminalRecord(id: Long): Result<CloudRecordDetail> = runCatching {
+        val record = getJson("/records/$id").optJSONObject("record")
+            ?: throw IllegalStateException("云端记录不存在")
+        CloudRecordDetail(
+            id = record.optLong("id"),
+            customerName = record.optString("customer_name"),
+            customerPhone = record.optString("customer_phone"),
+            customerType = record.optString("customer_type"),
+            customerAddress = record.optString("customer_address"),
+            inspectionDate = record.optString("inspection_date"),
+            checkResult = record.optString("check_result"),
+            status = record.optString("status"),
+            inspectorName = record.optString("inspector_name"),
+            deliveryPerson = record.optString("delivery_person"),
+            remark = record.optString("remark"),
+            locationAddress = record.optString("location_address"),
+            hazardItems = stringValues(record.optJSONArray("hazards"), "hazard_name"),
+            gasSourceIssues = stringValues(record.optJSONArray("gasSourceIssues"), "issue_text"),
+            photoPaths = stringValues(record.optJSONArray("photos"), "file_path")
+        )
+    }
+
+    override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = runCatching {
+        postJson(
+            "/auth/change-password",
+            JSONObject().apply {
+                put("currentPassword", currentPassword)
+                put("newPassword", newPassword)
+            }
+        )
+        Unit
     }
 
     override suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult> = runCatching {
@@ -293,6 +346,17 @@ class HttpCloudSyncClient(
 
     private fun getJson(endpoint: String): JSONObject =
         readData(openConnection(endpoint, "GET"))
+
+    private fun stringValues(items: JSONArray?, key: String): List<String> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                items.optJSONObject(index)?.optString(key)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::add)
+            }
+        }
+    }
 
     private fun openConnection(endpoint: String, method: String): HttpURLConnection {
         val url = URL(apiBase.trimEnd('/') + "/" + endpoint.trimStart('/'))
@@ -415,6 +479,10 @@ class NotConfiguredCloudSyncClient : CloudSyncClient {
     override suspend fun fetchCurrentSession(): Result<CloudLoginSession> = notConfigured()
 
     override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = notConfigured()
+
+    override suspend fun fetchTerminalRecord(id: Long): Result<CloudRecordDetail> = notConfigured()
+
+    override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = notConfigured()
 
     override suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult> = notConfigured()
 }

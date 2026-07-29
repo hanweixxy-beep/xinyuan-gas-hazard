@@ -326,11 +326,15 @@ fun IOSTopBar(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .padding(start = 8.dp)
-                        .size(40.dp)
-                        .background(GraySurface, RoundedCornerShape(8.dp))
+                        .padding(start = 4.dp)
+                        .size(48.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = InkPrimary)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = InkPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
             }
         },
