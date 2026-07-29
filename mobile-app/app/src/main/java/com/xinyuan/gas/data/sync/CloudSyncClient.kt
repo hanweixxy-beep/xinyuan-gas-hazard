@@ -61,6 +61,18 @@ data class CloudRecordSummary(
     val inspectorName: String
 )
 
+data class CloudRecordHazard(
+    val code: String,
+    val category: String,
+    val name: String
+)
+
+data class CloudRecordPhoto(
+    val url: String,
+    val type: String,
+    val hazardCode: String
+)
+
 data class CloudRecordDetail(
     val id: Long,
     val customerName: String,
@@ -74,9 +86,9 @@ data class CloudRecordDetail(
     val deliveryPerson: String,
     val remark: String,
     val locationAddress: String,
-    val hazardItems: List<String>,
+    val hazards: List<CloudRecordHazard>,
     val gasSourceIssues: List<String>,
-    val photoPaths: List<String>
+    val photos: List<CloudRecordPhoto>
 )
 
 class CloudApiException(
@@ -220,9 +232,9 @@ class HttpCloudSyncClient(
             deliveryPerson = record.optString("delivery_person"),
             remark = record.optString("remark"),
             locationAddress = record.optString("location_address"),
-            hazardItems = stringValues(record.optJSONArray("hazards"), "hazard_name"),
+            hazards = recordHazards(record.optJSONArray("hazards")),
             gasSourceIssues = stringValues(record.optJSONArray("gasSourceIssues"), "issue_text"),
-            photoPaths = stringValues(record.optJSONArray("photos"), "file_path")
+            photos = recordPhotos(record.optJSONArray("photos"))
         )
     }
 
@@ -356,6 +368,46 @@ class HttpCloudSyncClient(
                     ?.let(::add)
             }
         }
+    }
+
+    private fun recordHazards(items: JSONArray?): List<CloudRecordHazard> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                add(
+                    CloudRecordHazard(
+                        code = item.optString("hazard_code"),
+                        category = item.optString("hazard_category"),
+                        name = item.optString("hazard_name")
+                    )
+                )
+            }
+        }
+    }
+
+    private fun recordPhotos(items: JSONArray?): List<CloudRecordPhoto> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val path = item.optString("file_path").takeIf { it.isNotBlank() } ?: continue
+                add(
+                    CloudRecordPhoto(
+                        url = mediaUrl(path),
+                        type = item.optString("photo_type"),
+                        hazardCode = item.optString("hazard_code")
+                    )
+                )
+            }
+        }
+    }
+
+    private fun mediaUrl(path: String): String {
+        if (path.startsWith("https://", true) || path.startsWith("http://", true)) {
+            return path
+        }
+        return URL(URL(apiBase), "/${path.trimStart('/')}").toString()
     }
 
     private fun openConnection(endpoint: String, method: String): HttpURLConnection {

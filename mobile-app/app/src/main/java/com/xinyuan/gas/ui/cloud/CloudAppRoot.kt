@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +36,7 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Key
@@ -49,6 +53,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -71,9 +76,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -81,9 +89,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.SubcomposeAsyncImage
 import com.xinyuan.gas.BuildConfig
-import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudRecordDetail
+import com.xinyuan.gas.data.sync.CloudRecordHazard
+import com.xinyuan.gas.data.sync.CloudRecordPhoto
+import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudSettings
 import com.xinyuan.gas.data.sync.HttpCloudSyncClient
 import com.xinyuan.gas.ui.components.BrandLogo
@@ -471,10 +484,16 @@ private fun CloudShell(
             }
         }
     ) { padding ->
+        val layoutDirection = LocalLayoutDirection.current
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(
+                    start = padding.calculateStartPadding(layoutDirection),
+                    top = if (selectedTab == CloudTab.REGISTER) 0.dp else padding.calculateTopPadding(),
+                    end = padding.calculateEndPadding(layoutDirection),
+                    bottom = padding.calculateBottomPadding()
+                )
         ) {
             when (selectedTab) {
                 CloudTab.HOME -> CloudHomeScreen(viewModel, settings, { selectedTab = CloudTab.REGISTER }) {
@@ -879,6 +898,7 @@ private fun CloudRecordDetailDialog(
     loading: Boolean,
     onDismiss: () -> Unit
 ) {
+    var previewPhoto by remember(detail?.id) { mutableStateOf<CloudRecordPhoto?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(detail?.customerName ?: "记录详情") },
@@ -904,13 +924,22 @@ private fun CloudRecordDetailDialog(
                     item { DetailLine("检查人", detail.inspectorName) }
                     item { DetailLine("配送员", detail.deliveryPerson) }
                     item { DetailLine("检查结果", detail.checkResult) }
-                    if (detail.hazardItems.isNotEmpty()) {
-                        item { DetailLine("隐患项目", detail.hazardItems.joinToString("；")) }
+                    if (detail.hazards.isNotEmpty()) {
+                        item { DetailLine("隐患项目", detail.hazards.joinToString("；") { it.name }) }
                     }
                     if (detail.gasSourceIssues.isNotEmpty()) {
                         item { DetailLine("气源排查", detail.gasSourceIssues.joinToString("；")) }
                     }
-                    item { DetailLine("照片", "${detail.photoPaths.size} 张") }
+                    item { DetailLine("照片", "${detail.photos.size} 张") }
+                    cloudPhotoGroups(detail).forEach { group ->
+                        item {
+                            CloudPhotoGroup(
+                                title = group.title,
+                                photos = group.photos,
+                                onPreview = { previewPhoto = it }
+                            )
+                        }
+                    }
                     if (detail.remark.isNotBlank()) item { DetailLine("备注", detail.remark) }
                 }
             }
@@ -921,6 +950,184 @@ private fun CloudRecordDetailDialog(
         shape = RoundedCornerShape(8.dp),
         containerColor = Color.White
     )
+
+    previewPhoto?.let { photo ->
+        CloudPhotoPreviewDialog(
+            photo = photo,
+            title = cloudPhotoTitle(photo, detail?.hazards.orEmpty()),
+            onDismiss = { previewPhoto = null }
+        )
+    }
+}
+
+private data class CloudPhotoGroupUi(
+    val title: String,
+    val photos: List<CloudRecordPhoto>
+)
+
+private fun cloudPhotoGroups(detail: CloudRecordDetail): List<CloudPhotoGroupUi> =
+    detail.photos
+        .groupBy { cloudPhotoTitle(it, detail.hazards) }
+        .map { (title, photos) -> CloudPhotoGroupUi(title, photos) }
+
+private fun cloudPhotoTitle(
+    photo: CloudRecordPhoto,
+    hazards: List<CloudRecordHazard>
+): String = when (photo.type) {
+    "storefront" -> "门头照片"
+    "cylinder_qr" -> "钢瓶二维码照片"
+    "cylinder" -> "钢瓶照片"
+    "rectification" -> "整改照片"
+    "alarm" -> "可燃气体报警器照片"
+    "hose" -> "软管照片"
+    "environment" -> "用气环境照片"
+    "valve" -> "减压阀照片"
+    "guide" -> "安全用气指南照片"
+    "hazard" -> {
+        val hazard = hazards.firstOrNull { it.code == photo.hazardCode }
+        if (hazard == null) {
+            "隐患照片"
+        } else {
+            listOf(hazard.category, hazard.name)
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString(" · ")
+                .plus("照片")
+        }
+    }
+    else -> "其他照片"
+}
+
+@Composable
+private fun CloudPhotoGroup(
+    title: String,
+    photos: List<CloudRecordPhoto>,
+    onPreview: (CloudRecordPhoto) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "$title（${photos.size}）",
+            color = InkPrimary,
+            style = MaterialTheme.typography.labelMedium
+        )
+        photos.chunked(2).forEach { rowPhotos ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowPhotos.forEach { photo ->
+                    CloudPhotoThumbnail(
+                        photo = photo,
+                        onClick = { onPreview(photo) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowPhotos.size == 1) {
+                    Spacer(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudPhotoThumbnail(
+    photo: CloudRecordPhoto,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SubcomposeAsyncImage(
+        model = photo.url,
+        contentDescription = "查看照片",
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(GraySurface)
+            .clickable(onClick = onClick),
+        contentScale = ContentScale.Crop,
+        loading = {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = BrandGreen,
+                    strokeWidth = 2.dp
+                )
+            }
+        },
+        error = {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("照片加载失败", color = GrayTertiaryText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    )
+}
+
+@Composable
+private fun CloudPhotoPreviewDialog(
+    photo: CloudRecordPhoto,
+    title: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xF2181818)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "关闭照片", tint = Color.White)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    SubcomposeAsyncImage(
+                        model = photo.url,
+                        contentDescription = title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                        loading = {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Color.White)
+                            }
+                        },
+                        error = {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("照片加载失败，请检查网络后重试", color = Color.White)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
