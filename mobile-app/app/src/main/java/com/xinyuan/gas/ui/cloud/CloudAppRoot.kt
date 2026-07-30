@@ -378,7 +378,13 @@ private fun LegacyMigrationScreen(
                     trackColor = GraySurface
                 )
                 Text(
-                    if (unsyncedCount == 0) "云端核对完成" else "$migrated / $totalCount 条记录已迁移",
+                    if (unsyncedCount == 0) {
+                        "云端核对完成"
+                    } else if (running) {
+                        "$migrated / $totalCount 条记录正在自动上传"
+                    } else {
+                        "$migrated / $totalCount 条记录等待自动续传"
+                    },
                     color = if (unsyncedCount == 0) GreenSuccess else InkSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 10.dp)
@@ -393,7 +399,7 @@ private fun LegacyMigrationScreen(
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
                     Icon(Icons.Default.Shield, contentDescription = null, tint = GreenSuccess)
                     Text(
-                        "迁移完成并核对成功前不会删除旧数据。中断后可继续，UUID 会防止重复记录。",
+                        "登录后自动上传旧版记录；网络中断后会自动续传。核对成功前不会删除旧数据，UUID 会防止重复记录。",
                         color = InkSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(start = 10.dp)
@@ -421,7 +427,7 @@ private fun LegacyMigrationScreen(
                         Text("  正在迁移")
                     } else {
                         Icon(Icons.Default.Sync, contentDescription = null)
-                        Text("  开始迁移")
+                        Text("  立即重试")
                     }
                 }
             } else {

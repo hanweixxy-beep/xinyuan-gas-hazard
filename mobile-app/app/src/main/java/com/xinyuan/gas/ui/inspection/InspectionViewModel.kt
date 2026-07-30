@@ -414,6 +414,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 activeCloudClient = null
                 activeCloudClientKey = ""
                 refreshCloudRecords()
+                startLegacyAutoMigration()
             } catch (e: Exception) {
                 _dataActionMessage.emit("云端登录失败：${e.message ?: "未知错误"}")
             } finally {
@@ -472,6 +473,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     activeCloudClient = null
                     activeCloudClientKey = ""
                     refreshCloudRecords()
+                    startLegacyAutoMigration()
                 },
                 onFailure = { error ->
                     handleCloudFailure("账号资料刷新失败", error)
@@ -611,13 +613,44 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun migrateLegacyRecords() {
+        startLegacyMigration(automatic = false)
+    }
+
+    private fun startLegacyAutoMigration() {
+        startLegacyMigration(automatic = true)
+    }
+
+    private fun startLegacyMigration(automatic: Boolean) {
         viewModelScope.launch {
             if (_legacyMigrationRunning.value) return@launch
             _legacyMigrationRunning.value = true
-            val message = syncTerminalRecordsToCloudInternal(showStatusMessage = true)
-            _legacyMigrationRunning.value = false
-            _dataActionMessage.emit(message)
-            refreshCloudRecords()
+            try {
+                val hasPendingRecords = withContext(Dispatchers.IO) {
+                    terminalRepo.getUnsyncedRecords().isNotEmpty()
+                }
+                if (!hasPendingRecords) return@launch
+
+                val settings = _cloudSettings.value
+                if (!settings.isLoggedIn || !isNetworkAvailable()) {
+                    if (!automatic) {
+                        val message = if (!settings.isLoggedIn) {
+                            "请先登录 APP 账号"
+                        } else {
+                            "当前网络不可用，旧记录仍安全保留；联网后将自动继续上传"
+                        }
+                        _dataActionMessage.emit(message)
+                    }
+                    return@launch
+                }
+
+                val message = syncTerminalRecordsToCloudInternal(showStatusMessage = true)
+                _dataActionMessage.emit(
+                    if (automatic) "检测到旧版数据，已自动执行：$message" else message
+                )
+                refreshCloudRecords()
+            } finally {
+                _legacyMigrationRunning.value = false
+            }
         }
     }
 
@@ -651,7 +684,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             return if (showStatusMessage) "请先登录云端账号" else ""
         }
         if (!isNetworkAvailable()) {
-            return if (showStatusMessage) "当前网络不可用，旧记录仍安全保留；联网后请重新点击开始迁移" else ""
+            return if (showStatusMessage) "当前网络不可用，旧记录仍安全保留；联网后将自动继续上传" else ""
         }
 
         return runCatching {
@@ -722,6 +755,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             override fun onAvailable(network: Network) {
                 if (_cloudSettings.value.isLoggedIn) {
                     refreshCloudRecords()
+                    startLegacyAutoMigration()
                 }
             }
         }
