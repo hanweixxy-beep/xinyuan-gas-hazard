@@ -231,20 +231,20 @@ class HttpCloudSyncClient(
             ?: throw IllegalStateException("云端记录不存在")
         CloudRecordDetail(
             id = record.optLong("id"),
-            customerName = record.optString("customer_name"),
-            customerPhone = record.optString("customer_phone"),
-            customerType = record.optString("customer_type"),
-            customerAddress = record.optString("customer_address"),
-            inspectionDate = record.optString("inspection_date"),
-            checkResult = record.optString("check_result"),
-            status = record.optString("status"),
-            inspectorName = record.optString("inspector_name"),
-            deliveryPerson = record.optString("delivery_person"),
-            remark = record.optString("remark"),
-            locationAddress = record.optString("location_address"),
-            rectificationDate = record.optString("rectification_date"),
-            rectificationNote = record.optString("rectification_note"),
-            rectificationPerson = record.optString("rectification_person"),
+            customerName = record.textOrBlank("customer_name"),
+            customerPhone = record.textOrBlank("customer_phone"),
+            customerType = record.textOrBlank("customer_type"),
+            customerAddress = record.textOrBlank("customer_address"),
+            inspectionDate = record.textOrBlank("inspection_date"),
+            checkResult = record.textOrBlank("check_result"),
+            status = record.textOrBlank("status"),
+            inspectorName = record.textOrBlank("inspector_name"),
+            deliveryPerson = record.textOrBlank("delivery_person"),
+            remark = record.textOrBlank("remark"),
+            locationAddress = record.textOrBlank("location_address"),
+            rectificationDate = record.textOrBlank("rectification_date"),
+            rectificationNote = record.textOrBlank("rectification_note"),
+            rectificationPerson = record.textOrBlank("rectification_person"),
             hazards = recordHazards(record.optJSONArray("hazards")),
             gasSourceIssues = stringValues(record.optJSONArray("gasSourceIssues"), "issue_text"),
             photos = recordPhotos(record.optJSONArray("photos"))
@@ -395,6 +395,11 @@ class HttpCloudSyncClient(
 
     private fun getJson(endpoint: String): JSONObject =
         readData(openConnection(endpoint, "GET"))
+
+    private fun JSONObject.textOrBlank(key: String): String {
+        if (isNull(key)) return ""
+        return optString(key).takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+    }
 
     private fun stringValues(items: JSONArray?, key: String): List<String> {
         if (items == null) return emptyList()
