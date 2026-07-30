@@ -1,0 +1,23 @@
+[Unit]
+Description=Xinyuan Gas encrypted offsite backup
+Documentation=file:///var/www/xinyuan-gas/docs/PRODUCTION_BACKUP.md
+After=network-online.target xinyuan-gas-backup-daily.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/xinyuan-gas-offsite-backup
+User=root
+Group=root
+UMask=0077
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/backups/xinyuan-gas /var/log /run/lock
+
+[Install]
+WantedBy=multi-user.target

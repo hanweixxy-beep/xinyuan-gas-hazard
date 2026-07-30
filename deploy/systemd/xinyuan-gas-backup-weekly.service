@@ -1,0 +1,23 @@
+[Unit]
+Description=Xinyuan Gas weekly full backup
+Documentation=file:///var/www/xinyuan-gas/docs/PRODUCTION_BACKUP.md
+After=local-fs.target mysql.service
+RequiresMountsFor=/var/www/xinyuan-gas /var/backups
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/xinyuan-gas-backup weekly
+User=root
+Group=root
+UMask=0077
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/backups/xinyuan-gas /var/log /run/lock
+
+[Install]
+WantedBy=multi-user.target

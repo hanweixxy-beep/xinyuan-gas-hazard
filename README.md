@@ -46,4 +46,5 @@ H5 在门头照片阶段获取一次高精度坐标并解析用户地址；同�
 - [换电脑恢复](docs/RESTORE_ON_NEW_PC.md)
 - [换机交接清单](docs/NEW_PC_HANDOVER.md)
 - [备份与敏感信息](docs/BACKUP_AND_SECRETS.md)
+- [生产环境自动备份与恢复](docs/PRODUCTION_BACKUP.md)
 - [APP 2.0 云端化说明](docs/APP_CLOUD_FIRST_V2.md)

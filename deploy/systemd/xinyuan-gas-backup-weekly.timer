@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Xinyuan Gas weekly full backup on Sunday
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00 Asia/Shanghai
+RandomizedDelaySec=15m
+Persistent=true
+AccuracySec=1m
+Unit=xinyuan-gas-backup-weekly.service
+
+[Install]
+WantedBy=timers.target
