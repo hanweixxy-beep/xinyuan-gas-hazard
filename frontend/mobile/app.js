@@ -119,16 +119,12 @@ function renderAddressSurface() {
   if (state.location) {
     setLocationSurface(
       'success',
-      '用户地址',
-      `${address || '未填写用户地址'}；定位坐标：${state.location.lat}, ${state.location.lng}`
+      '已获取用户地址',
+      `${address || '用户地址坐标已记录'}；定位坐标：${state.location.lat}, ${state.location.lng}`
     );
     return;
   }
-  if (address) {
-    setLocationSurface('pending', '用户地址', `${address}；拍摄门头照片时自动尝试定位。`);
-    return;
-  }
-  setLocationSurface('pending', '用户地址', '填写用户地址后用于照片水印；拍摄门头照片时自动尝试定位。');
+  setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片后自动记录定位地址。');
 }
 
 function photoItems(field) {
@@ -190,11 +186,11 @@ function validateStep(step = state.formStep) {
     if (!form.customerName) return failStep('请填写用户名。', 'customerName', step);
     if (!form.customerPhone) return failStep('请填写联系电话。', 'customerPhone', step);
     if (!form.customerType) return failStep('请选择用户类型。', 'customerType', step);
-    if (!form.customerAddress) return failStep('请填写详细地址。', 'customerAddress', step);
     if (!form.inspectorName) return failStep('请填写检查人。', 'inspectorName', step);
     if (!form.inspectionDate) return failStep('请选择检查日期。', 'inspectionDate', step);
     if (!form.deliveryPerson) return failStep('请填写配送员。', 'deliveryPerson', step);
     if (!hasPhoto('storefront')) return failStep('请先拍摄门头照片。', 'storefront', step);
+    if (!form.customerAddress) return failStep('未获取到用户地址，请确认定位权限后重新拍摄门头照片。', 'storefront', step);
   }
   if (step === 'hazard') {
     const hazardCodes = selectedValues('hazardItems');
@@ -766,6 +762,52 @@ function logout(confirmFirst = true) {
   if (confirmFirst) showToast('已退出，可以切换账号登录。');
 }
 
+function distinctAddressParts(parts) {
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .filter((part, index, values) => {
+      if (['中国', '中华人民共和国', '中国大陆'].includes(part)) return false;
+      return values.findIndex((candidate) => candidate === part) === index;
+    })
+    .reduce((result, part) => {
+      if (!result.some((existing) => existing.includes(part) || part === existing)) {
+        result.push(part);
+      }
+      return result;
+    }, []);
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  const url = new URL('https://api.bigdatacloud.net/data/reverse-geocode-client');
+  url.searchParams.set('latitude', String(latitude));
+  url.searchParams.set('longitude', String(longitude));
+  url.searchParams.set('localityLanguage', 'zh');
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      referrerPolicy: 'strict-origin-when-cross-origin'
+    });
+    if (!response.ok) throw new Error('地址解析服务暂时不可用。');
+    const data = await response.json();
+    const administrative = (data.localityInfo?.administrative || [])
+      .filter((item) => Number(item.adminLevel || 0) > 2)
+      .map((item) => item.name);
+    const fallback = [
+      data.principalSubdivision,
+      data.city,
+      data.locality,
+      data.postcode
+    ];
+    return distinctAddressParts(administrative.length ? administrative : fallback).join('');
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function openPasswordDialog() {
   $('#passwordForm').reset();
   $('#passwordDialog').classList.remove('hidden');
@@ -806,40 +848,58 @@ async function changePassword(event) {
 
 function locate(auto = false) {
   if (!navigator.geolocation) {
-    setLocationSurface('failed', '定位不可用', '当前浏览器不支持定位，请手工填写地址。水印会保留手填地址和时间。');
+    setLocationSurface('failed', '定位不可用', '当前浏览器不支持定位，无法生成用户地址，请更换手机浏览器后重新拍摄。');
     renderReviewSummary();
-    if (!auto) showToast('当前浏览器不支持定位，请手工填写地址。');
+    if (!auto) showToast('当前浏览器不支持定位，无法生成用户地址。');
     return Promise.resolve(false);
   }
 
   const localHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   if (!window.isSecureContext && !localHost) {
-    setLocationSurface('failed', '定位受限', '当前使用 HTTP/IP 访问，手机浏览器可能禁止定位。可继续拍照，水印会写入手填地址和“定位未获取”。');
+    setLocationSurface('failed', '定位受限', '当前连接不安全，浏览器无法自动定位。请使用 HTTPS 地址重新打开页面。');
     renderReviewSummary();
-    if (!auto) showToast('HTTP/IP 访问可能被浏览器禁止定位，正式使用建议配置 HTTPS。');
+    if (!auto) showToast('请使用 HTTPS 地址打开页面后重新拍摄。');
     return Promise.resolve(false);
   }
 
   state.locating = true;
   setLocationSurface('pending', '正在定位', '请在浏览器弹窗中允许定位，定位成功后会写入照片水印。');
   return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition((position) => {
+    navigator.geolocation.getCurrentPosition(async (position) => {
       state.location = {
         lat: Number(position.coords.latitude.toFixed(7)),
         lng: Number(position.coords.longitude.toFixed(7)),
         accuracy: Math.round(position.coords.accuracy || 0),
-        address: currentAddress()
+        address: ''
       };
+      setLocationSurface(
+        'pending',
+        '正在生成用户地址',
+        `已获取定位坐标：${state.location.lat}, ${state.location.lng}`
+      );
+      let address = '';
+      try {
+        address = await reverseGeocode(state.location.lat, state.location.lng);
+      } catch {
+        address = '';
+      }
+      address = address || '用户地址坐标已记录';
+      $('[name="customerAddress"]').value = address;
+      state.location.address = address;
       state.locating = false;
       renderAddressSurface();
       renderReviewSummary();
-      if (!auto) showToast('定位成功。');
+      if (!auto) showToast('用户地址已自动获取。');
       resolve(true);
     }, (error) => {
       state.locating = false;
+      if (!hasPhoto('storefront')) {
+        state.location = null;
+        $('[name="customerAddress"]').value = '';
+      }
       const message = error.code === 1
-        ? '定位权限被拒绝，请在浏览器设置中允许定位，或继续使用手填地址。'
-        : '定位失败，请检查网络、权限或信号，水印会保留手填地址。';
+        ? '定位权限被拒绝，请在浏览器设置中允许定位后重新拍摄门头照片。'
+        : '定位失败，请检查网络、权限或信号后重新拍摄门头照片。';
       setLocationSurface('failed', '定位失败', message);
       renderReviewSummary();
       if (!auto) showToast(message);
@@ -972,14 +1032,19 @@ function validatePhotoContext(field = '') {
     ['customerName', form.customerName, '用户名'],
     ['customerPhone', form.customerPhone, '电话'],
     ['customerType', form.customerType, '用户类型'],
-    ['customerAddress', form.customerAddress, '用户地址'],
     ['inspectorName', form.inspectorName, '检查人'],
     ['inspectionDate', form.inspectionDate, '检查日期'],
     ['deliveryPerson', form.deliveryPerson, '配送员']
   ];
+  if (field !== 'storefront') {
+    required.splice(3, 0, ['customerAddress', form.customerAddress, '用户地址']);
+  }
   const missing = required.find(([, value]) => !value);
   if (missing) {
-    focusFormField(missing[0]);
+    focusFormField(missing[0] === 'customerAddress' ? 'storefront' : missing[0]);
+    if (missing[0] === 'customerAddress') {
+      return '请先拍摄门头照片自动获取用户地址，再拍摄其他照片。';
+    }
     return field === 'storefront'
       ? `请先填写${missing[2]}，再拍摄门头照片生成完整水印。`
       : `请先填写${missing[2]}，再拍照生成完整水印。`;
@@ -1038,8 +1103,12 @@ async function handlePhotoInput(event) {
   const tile = input.closest('.photo-tile');
   tile?.classList.add('processing');
   try {
-    if (input.name === 'storefront' && !state.location) {
-      await locate(true);
+    if (input.name === 'storefront') {
+      const located = await locate(true);
+      if (!located || !currentAddress()) {
+        input.value = '';
+        throw new Error('未获取到用户地址，请确认定位权限后重新拍摄门头照片。');
+      }
     }
     if (!input.multiple) {
       clearPhotoField(input.name, false);
@@ -1065,6 +1134,11 @@ function deletePhoto(field, id) {
   if (state.photos[field].length === 0) {
     const input = photoInput(field);
     if (input) input.value = '';
+    if (field === 'storefront') {
+      state.location = null;
+      $('[name="customerAddress"]').value = '';
+      renderAddressSurface();
+    }
   }
   renderPhotoPreview(field);
   renderReviewSummary();
@@ -1211,7 +1285,7 @@ function clearForm(showMessage = true) {
   state.cloudDraftSaved = false;
   localStorage.removeItem(cloudDraftKey);
   clearAllPhotos();
-  setLocationSurface('pending', '用户地址', '填写用户地址后用于照片水印；拍摄门头照片时自动尝试定位。');
+  setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片后自动记录定位地址。');
   document.querySelectorAll('.hazard-item').forEach((item) => item.classList.remove('selected'));
   document.querySelectorAll('.hazard-photo').forEach((item) => item.classList.add('hidden'));
   updateHazardVisibility();
@@ -1295,7 +1369,6 @@ function bindEvents() {
     if (event.target.dataset.passwordClose) closePasswordDialog();
   });
   $('#passwordForm').addEventListener('submit', (event) => changePassword(event).catch((error) => showToast(error.message)));
-  $('#locateBtn').addEventListener('click', () => locate(false));
   $('#formStepper').addEventListener('click', (event) => {
     const button = event.target.closest('[data-step-target]');
     if (!button) return;
