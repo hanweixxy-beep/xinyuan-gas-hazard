@@ -1074,18 +1074,51 @@ function renderPhotoPreview(field) {
   if (!input) return;
   const preview = getOrCreatePreview(input);
   const items = state.photos[field] || [];
+  const tile = input.closest('.photo-tile');
+  const label = tile?.dataset.photoLabel || '现场照片';
+  if (input.multiple) {
+    const helper = tile?.querySelector('em');
+    if (helper) {
+      helper.dataset.emptyText ||= helper.textContent;
+      helper.textContent = items.length
+        ? `已拍 ${items.length} 张，点击继续拍摄`
+        : helper.dataset.emptyText;
+    }
+    tile?.classList.toggle('has-photos', items.length > 0);
+  }
   preview.classList.toggle('hidden', items.length === 0);
-  preview.innerHTML = items.map((item) => `
-    <article class="photo-card">
-      <img src="${item.previewUrl}" alt="已拍照片预览">
-      <div>
-        <strong>已加水印</strong>
-        <span>${item.location ? `定位：${item.location.lat}, ${item.location.lng}` : '定位：未获取'}</span>
-        <span>${item.capturedAt}</span>
-      </div>
-      <button type="button" data-photo-delete="${item.id}" data-photo-field="${field}">删除</button>
-    </article>
-  `).join('');
+  preview.innerHTML = items.length ? `
+    <div class="photo-preview-head">
+      <strong>${escapeHtml(label)} · ${items.length} 张</strong>
+      <span>点击照片查看大图</span>
+    </div>
+    <div class="photo-preview-strip">
+      ${items.map((item, index) => `
+        <article class="photo-card">
+          <button class="local-photo-open" type="button"
+            data-local-photo-preview="${item.id}"
+            data-photo-field="${field}"
+            aria-label="查看${escapeHtml(label)}第 ${index + 1} 张">
+            <img src="${item.previewUrl}" alt="${escapeHtml(label)}第 ${index + 1} 张">
+            <span>${index + 1}</span>
+          </button>
+          <button class="local-photo-delete" type="button"
+            data-photo-delete="${item.id}"
+            data-photo-field="${field}"
+            aria-label="删除${escapeHtml(label)}第 ${index + 1} 张">×</button>
+        </article>
+      `).join('')}
+    </div>
+  ` : '';
+}
+
+function openLocalPhotoPreview(field, id) {
+  const input = photoInput(field);
+  const items = state.photos[field] || [];
+  const index = items.findIndex((item) => item.id === id);
+  if (index < 0) return;
+  const label = input?.closest('.photo-tile')?.dataset.photoLabel || '现场照片';
+  openPhotoPreview(items[index].previewUrl, `${label} ${index + 1}/${items.length}`);
 }
 
 async function handlePhotoInput(event) {
@@ -1122,6 +1155,7 @@ async function handlePhotoInput(event) {
   } catch (error) {
     showToast(error.message);
   } finally {
+    if (input.multiple) input.value = '';
     tile?.classList.remove('processing');
   }
 }
@@ -1390,6 +1424,16 @@ function bindEvents() {
     renderReviewSummary();
   });
   $('#inspectionForm').addEventListener('click', (event) => {
+    const previewButton = event.target.closest('[data-local-photo-preview]');
+    if (previewButton) {
+      openLocalPhotoPreview(previewButton.dataset.photoField, previewButton.dataset.localPhotoPreview);
+      return;
+    }
+    const deleteButton = event.target.closest('[data-photo-delete]');
+    if (deleteButton) {
+      deletePhoto(deleteButton.dataset.photoField, deleteButton.dataset.photoDelete);
+      return;
+    }
     const tile = event.target.closest('.photo-tile');
     const fileInput = tile?.querySelector('input[type="file"]');
     if (fileInput?.name === 'storefront') {
@@ -1401,9 +1445,6 @@ function bindEvents() {
         return;
       }
     }
-    const button = event.target.closest('[data-photo-delete]');
-    if (!button) return;
-    deletePhoto(button.dataset.photoField, button.dataset.photoDelete);
   });
   $('#clearFormBtn').addEventListener('click', () => {
     clearForm(false);
