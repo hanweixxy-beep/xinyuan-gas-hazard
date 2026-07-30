@@ -785,6 +785,26 @@ function distinctAddressParts(parts) {
 }
 
 async function reverseGeocode(latitude, longitude) {
+  try {
+    const result = await api('/location/reverse-geocode', {
+      method: 'POST',
+      body: JSON.stringify({ latitude, longitude })
+    });
+    const address = String(result?.address || '').trim();
+    if (address) {
+      return { address, provider: 'tencent' };
+    }
+  } catch {
+    // Preserve field usability when Tencent Maps is temporarily unavailable.
+  }
+
+  return {
+    address: await reverseGeocodeFallback(latitude, longitude),
+    provider: 'fallback'
+  };
+}
+
+async function reverseGeocodeFallback(latitude, longitude) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
   const url = new URL('https://api.bigdatacloud.net/data/reverse-geocode-client');
@@ -942,15 +962,16 @@ async function locate(auto = false) {
       '正在生成用户地址',
       `已选取最佳坐标，精度约 ${state.location.accuracy} 米；地址服务仅调用一次。`
     );
-    let address = '';
+    let geocoded = { address: '', provider: '' };
     try {
-      address = await reverseGeocode(state.location.lat, state.location.lng);
+      geocoded = await reverseGeocode(state.location.lat, state.location.lng);
     } catch {
-      address = '';
+      geocoded = { address: '', provider: '' };
     }
-    address = address || '用户地址坐标已记录';
+    const address = geocoded.address || '用户地址坐标已记录';
     $('[name="customerAddress"]').value = address;
     state.location.address = address;
+    state.location.addressProvider = geocoded.provider;
     renderAddressSurface();
     renderReviewSummary();
     if (!auto) showToast('用户地址已自动获取，后续照片将统一复用。');
@@ -1198,7 +1219,7 @@ async function handlePhotoInput(event) {
   const tile = input.closest('.photo-tile');
   tile?.classList.add('processing');
   try {
-    if (input.name === 'storefront') {
+    if (input.name === 'storefront' && !state.location) {
       const located = await locate(true);
       if (!located || !currentAddress()) {
         input.value = '';

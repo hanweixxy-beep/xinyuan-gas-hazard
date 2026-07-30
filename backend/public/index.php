@@ -11,6 +11,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\FileController;
+use App\Http\Controllers\LocationController;
 use App\Http\Controllers\RecordController;
 use App\Repositories\CompanyRepository;
 use App\Repositories\RecordRepository;
@@ -20,6 +21,7 @@ use App\Services\AdminService;
 use App\Services\ExportService;
 use App\Services\FileStorageService;
 use App\Services\RecordService;
+use App\Services\TencentMapService;
 
 require dirname(__DIR__) . '/app/Core/Autoloader.php';
 Autoloader::register(dirname(__DIR__) . '/app');
@@ -37,12 +39,14 @@ $adminService = new AdminService($companyRepository, $userRepository);
 $recordService = new RecordService($recordRepository);
 $exportService = new ExportService((string) $config->get('upload_root'));
 $fileStorage = new FileStorageService($config);
+$tencentMapService = new TencentMapService($config);
 
 $authController = new AuthController($authService);
 $adminController = new AdminController($authService, $adminService);
 $catalogController = new CatalogController();
 $recordController = new RecordController($authService, $recordService);
 $fileController = new FileController($authService, $fileStorage);
+$locationController = new LocationController($authService, $tencentMapService);
 $exportController = new ExportController($authService, $recordService, $exportService);
 
 $router = new Router();
@@ -67,5 +71,6 @@ $router->add('POST', '/api/records/drafts/submit', fn (Request $request) => $rec
 $router->add('GET', '/api/records/{id}', fn (Request $request, array $params) => $recordController->show($request, $params));
 $router->add('POST', '/api/records/{id}/rectify', fn (Request $request, array $params) => $recordController->rectify($request, $params));
 $router->add('POST', '/api/files/upload', fn (Request $request) => $fileController->upload($request));
+$router->add('POST', '/api/location/reverse-geocode', fn (Request $request) => $locationController->reverseGeocode($request));
 
 $router->dispatch(new Request());

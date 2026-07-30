@@ -31,11 +31,13 @@ docs/               部署、备份、换电脑恢复说明
 
 ## 快速开始
 
-1. 复制 `backend/.env.example` 为 `backend/.env`，填入数据库配置。
+1. 复制 `backend/.env.example` 为 `backend/.env`，填入数据库配置和服务器端腾讯地图 Web Service Key。Key 只保存在服务器 `.env`，不得写入 H5、APP 或 GitHub。
 2. 后端入口为 `backend/public/index.php`。
 3. 后台页面目录为 `frontend/admin`。
 4. 手机 H5 页面目录为 `frontend/mobile`。
 5. Android 工程在 `mobile-app`，用 Android Studio 打开即可。
+
+H5 在门头照片阶段获取一次高精度坐标并解析用户地址；同一条记录的后续照片统一复用该地址和坐标，不重复消耗逆地址解析额度。
 
 更多说明见：
 
