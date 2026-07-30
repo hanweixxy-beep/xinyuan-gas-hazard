@@ -10,6 +10,9 @@ const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_h5_token';
 const cloudDraftKey = 'xinyuan_h5_cloud_draft_uuid';
 const singlePageForm = false;
+const LOCATION_TARGET_ACCURACY_METERS = 30;
+const LOCATION_MAX_ACCURACY_METERS = 100;
+const LOCATION_FIX_TIMEOUT_MS = 15000;
 const formSteps = [
   { key: 'user', label: '用户与现场' },
   { key: 'hazard', label: '核查与照片' },
@@ -117,14 +120,17 @@ function renderAddressSurface() {
   const address = currentAddress();
   if (!$('#locationCard')) return;
   if (state.location) {
+    const accuracyText = state.location.accuracy
+      ? `；GPS 精度约 ${state.location.accuracy} 米`
+      : '';
     setLocationSurface(
       'success',
       '已获取用户地址',
-      `${address || '用户地址坐标已记录'}；定位坐标：${state.location.lat}, ${state.location.lng}`
+      `${address || '用户地址坐标已记录'}；定位坐标：${state.location.lat}, ${state.location.lng}${accuracyText}；后续照片统一复用`
     );
     return;
   }
-  setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片后自动记录定位地址。');
+  setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片时获取一次高精度定位，后续照片统一复用。');
 }
 
 function photoItems(field) {
@@ -808,6 +814,58 @@ async function reverseGeocode(latitude, longitude) {
   }
 }
 
+function getBestCurrentPosition(onProgress) {
+  return new Promise((resolve, reject) => {
+    let bestPosition = null;
+    let watchId = null;
+    let finished = false;
+
+    const accuracyOf = (position) => Number(position?.coords?.accuracy || Number.POSITIVE_INFINITY);
+    const finish = (callback, value) => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeoutId);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      callback(value);
+    };
+    const finishWithBestOrError = (fallbackError) => {
+      const bestAccuracy = accuracyOf(bestPosition);
+      if (bestPosition && bestAccuracy <= LOCATION_MAX_ACCURACY_METERS) {
+        finish(resolve, bestPosition);
+        return;
+      }
+      const error = fallbackError instanceof Error
+        ? fallbackError
+        : new Error(fallbackError?.message || '未获取到足够精确的定位。');
+      if (fallbackError?.code) error.code = fallbackError.code;
+      error.code = error.code || 'LOW_ACCURACY';
+      error.accuracy = Number.isFinite(bestAccuracy) ? Math.round(bestAccuracy) : 0;
+      finish(reject, error);
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      finishWithBestOrError(new Error('高精度定位超时。'));
+    }, LOCATION_FIX_TIMEOUT_MS);
+
+    watchId = navigator.geolocation.watchPosition((position) => {
+      const accuracy = accuracyOf(position);
+      if (!bestPosition || accuracy < accuracyOf(bestPosition)) {
+        bestPosition = position;
+        if (Number.isFinite(accuracy)) onProgress?.(Math.round(accuracy));
+      }
+      if (accuracy <= LOCATION_TARGET_ACCURACY_METERS) {
+        finish(resolve, position);
+      }
+    }, (error) => {
+      finishWithBestOrError(error);
+    }, {
+      enableHighAccuracy: true,
+      timeout: LOCATION_FIX_TIMEOUT_MS,
+      maximumAge: 0
+    });
+  });
+}
+
 function openPasswordDialog() {
   $('#passwordForm').reset();
   $('#passwordDialog').classList.remove('hidden');
@@ -846,12 +904,12 @@ async function changePassword(event) {
   showToast('密码已修改，请使用新密码重新登录。');
 }
 
-function locate(auto = false) {
+async function locate(auto = false) {
   if (!navigator.geolocation) {
     setLocationSurface('failed', '定位不可用', '当前浏览器不支持定位，无法生成用户地址，请更换手机浏览器后重新拍摄。');
     renderReviewSummary();
     if (!auto) showToast('当前浏览器不支持定位，无法生成用户地址。');
-    return Promise.resolve(false);
+    return false;
   }
 
   const localHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -859,57 +917,61 @@ function locate(auto = false) {
     setLocationSurface('failed', '定位受限', '当前连接不安全，浏览器无法自动定位。请使用 HTTPS 地址重新打开页面。');
     renderReviewSummary();
     if (!auto) showToast('请使用 HTTPS 地址打开页面后重新拍摄。');
-    return Promise.resolve(false);
+    return false;
   }
 
   state.locating = true;
-  setLocationSurface('pending', '正在定位', '请在浏览器弹窗中允许定位，定位成功后会写入照片水印。');
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      state.location = {
-        lat: Number(position.coords.latitude.toFixed(7)),
-        lng: Number(position.coords.longitude.toFixed(7)),
-        accuracy: Math.round(position.coords.accuracy || 0),
-        address: ''
-      };
+  setLocationSurface('pending', '正在获取高精度定位', '请允许定位并保持手机稳定，系统会选择精度最好的一次。');
+  try {
+    const position = await getBestCurrentPosition((accuracy) => {
       setLocationSurface(
         'pending',
-        '正在生成用户地址',
-        `已获取定位坐标：${state.location.lat}, ${state.location.lng}`
+        '正在提高定位精度',
+        `当前精度约 ${accuracy} 米，目标 ${LOCATION_TARGET_ACCURACY_METERS} 米以内。`
       );
-      let address = '';
-      try {
-        address = await reverseGeocode(state.location.lat, state.location.lng);
-      } catch {
-        address = '';
-      }
-      address = address || '用户地址坐标已记录';
-      $('[name="customerAddress"]').value = address;
-      state.location.address = address;
-      state.locating = false;
-      renderAddressSurface();
-      renderReviewSummary();
-      if (!auto) showToast('用户地址已自动获取。');
-      resolve(true);
-    }, (error) => {
-      state.locating = false;
-      if (!hasPhoto('storefront')) {
-        state.location = null;
-        $('[name="customerAddress"]').value = '';
-      }
-      const message = error.code === 1
-        ? '定位权限被拒绝，请在浏览器设置中允许定位后重新拍摄门头照片。'
-        : '定位失败，请检查网络、权限或信号后重新拍摄门头照片。';
-      setLocationSurface('failed', '定位失败', message);
-      renderReviewSummary();
-      if (!auto) showToast(message);
-      resolve(false);
-    }, {
-      enableHighAccuracy: true,
-      timeout: 12000,
-      maximumAge: 60000
     });
-  });
+    state.location = {
+      lat: Number(position.coords.latitude.toFixed(7)),
+      lng: Number(position.coords.longitude.toFixed(7)),
+      accuracy: Math.round(position.coords.accuracy || 0),
+      address: '',
+      source: 'storefront'
+    };
+    setLocationSurface(
+      'pending',
+      '正在生成用户地址',
+      `已选取最佳坐标，精度约 ${state.location.accuracy} 米；地址服务仅调用一次。`
+    );
+    let address = '';
+    try {
+      address = await reverseGeocode(state.location.lat, state.location.lng);
+    } catch {
+      address = '';
+    }
+    address = address || '用户地址坐标已记录';
+    $('[name="customerAddress"]').value = address;
+    state.location.address = address;
+    renderAddressSurface();
+    renderReviewSummary();
+    if (!auto) showToast('用户地址已自动获取，后续照片将统一复用。');
+    return true;
+  } catch (error) {
+    if (!hasPhoto('storefront')) {
+      state.location = null;
+      $('[name="customerAddress"]').value = '';
+    }
+    const message = error.code === 1
+      ? '定位权限被拒绝，请在浏览器设置中允许精确定位后重新拍摄门头照片。'
+      : error.code === 'LOW_ACCURACY' || Number(error.accuracy) > LOCATION_MAX_ACCURACY_METERS
+        ? `当前定位精度约 ${error.accuracy || 100} 米，未达到水印要求。请到开阔处保持手机稳定后重拍。`
+        : '定位失败，请检查网络、精确定位权限或 GPS 信号后重新拍摄门头照片。';
+    setLocationSurface('failed', '定位失败', message);
+    renderReviewSummary();
+    if (!auto) showToast(message);
+    return false;
+  } finally {
+    state.locating = false;
+  }
 }
 
 function selectedValues(name) {
@@ -1319,7 +1381,7 @@ function clearForm(showMessage = true) {
   state.cloudDraftSaved = false;
   localStorage.removeItem(cloudDraftKey);
   clearAllPhotos();
-  setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片后自动记录定位地址。');
+  setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片时获取一次高精度定位，后续照片统一复用。');
   document.querySelectorAll('.hazard-item').forEach((item) => item.classList.remove('selected'));
   document.querySelectorAll('.hazard-photo').forEach((item) => item.classList.add('hidden'));
   updateHazardVisibility();
