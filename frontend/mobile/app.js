@@ -8,14 +8,12 @@ import {
 
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_h5_token';
-const draftKey = 'xinyuan_inspection_draft';
-const singlePageForm = true;
+const cloudDraftKey = 'xinyuan_h5_cloud_draft_uuid';
+const singlePageForm = false;
 const formSteps = [
-  { key: 'user', label: '用户信息' },
-  { key: 'inspect', label: '检查信息' },
-  { key: 'photo', label: '拍照与结果' },
-  { key: 'hazard', label: '隐患与备注' },
-  { key: 'review', label: '提交确认' }
+  { key: 'user', label: '用户与现场' },
+  { key: 'hazard', label: '核查与照片' },
+  { key: 'review', label: '确认提交' }
 ];
 const formStepKeys = formSteps.map((step) => step.key);
 const fieldStepMap = {
@@ -23,10 +21,10 @@ const fieldStepMap = {
   customerPhone: 'user',
   customerType: 'user',
   customerAddress: 'user',
-  inspectorName: 'inspect',
-  inspectionDate: 'inspect',
-  deliveryPerson: 'inspect',
-  storefront: 'photo',
+  inspectorName: 'user',
+  inspectionDate: 'user',
+  deliveryPerson: 'user',
+  storefront: 'user',
   cylinderQr: 'hazard',
   cylinder: 'hazard'
 };
@@ -39,7 +37,9 @@ const state = {
   formStep: 'user',
   records: [],
   currentRecord: null,
-  photos: {}
+  photos: {},
+  clientUuid: localStorage.getItem(cloudDraftKey) || '',
+  cloudDraftSaved: false
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -191,13 +191,9 @@ function validateStep(step = state.formStep) {
     if (!form.customerPhone) return failStep('请填写联系电话。', 'customerPhone', step);
     if (!form.customerType) return failStep('请选择用户类型。', 'customerType', step);
     if (!form.customerAddress) return failStep('请填写详细地址。', 'customerAddress', step);
-  }
-  if (step === 'inspect') {
     if (!form.inspectorName) return failStep('请填写检查人。', 'inspectorName', step);
     if (!form.inspectionDate) return failStep('请选择检查日期。', 'inspectionDate', step);
     if (!form.deliveryPerson) return failStep('请填写配送员。', 'deliveryPerson', step);
-  }
-  if (step === 'photo') {
     if (!hasPhoto('storefront')) return failStep('请先拍摄门头照片。', 'storefront', step);
   }
   if (step === 'hazard') {
@@ -287,33 +283,46 @@ function updateStepSurface() {
   const prev = $('#stepPrevBtn');
   const next = $('#stepNextBtn');
   const submit = $('#submitRecordBtn');
-  if (prev) prev.disabled = index === 0;
+  const clear = $('#clearFormBtn');
+  if (clear) clear.classList.toggle('hidden', index !== 0);
+  if (prev) {
+    prev.classList.toggle('hidden', index === 0);
+    prev.textContent = index === formSteps.length - 1 ? '返回修改' : '上一步';
+  }
   if (next) next.classList.toggle('hidden', index === formSteps.length - 1);
   if (submit) submit.classList.toggle('hidden', index !== formSteps.length - 1);
+  $('#cloudDraftBanner')?.classList.toggle('hidden', !(state.cloudDraftSaved && state.formStep === 'hazard'));
+  renderAddressSurface();
   renderReviewSummary();
 }
 
-function setFormStep(step) {
+async function setFormStep(step) {
   const targetIndex = formStepIndex(step);
   const currentIndex = formStepIndex();
   if (targetIndex > currentIndex) {
     for (let index = currentIndex; index < targetIndex; index += 1) {
       if (!validateStep(formStepKeys[index])) return;
     }
+    if (currentIndex === 0) {
+      await saveCloudDraft();
+    }
   }
   goToFormStep(step);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
-function nextFormStep() {
+async function nextFormStep() {
   if (!validateCurrentStep()) return;
   const next = formSteps[formStepIndex() + 1];
-  if (next) setFormStep(next.key);
+  if (next) await setFormStep(next.key);
 }
 
 function previousFormStep() {
   const previous = formSteps[formStepIndex() - 1];
-  if (previous) setFormStep(previous.key);
+  if (previous) {
+    goToFormStep(previous.key);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
 }
 
 function getOrCreatePreview(input) {
@@ -461,41 +470,66 @@ function setView(view) {
   $('#loginPanel').classList.toggle('hidden', view !== 'login');
   $('#menuPanel').classList.toggle('hidden', view !== 'menu');
   $('#recordsPanel').classList.toggle('hidden', view !== 'records');
+  $('#profilePanel').classList.toggle('hidden', view !== 'profile');
   $('#inspectionForm').classList.toggle('hidden', view !== 'form');
-  $('#accountPanel').classList.toggle('hidden', !state.user);
-  $('#logoutBtn').classList.toggle('hidden', !state.user);
-  $('#backMenuBtn').classList.toggle('hidden', !['form', 'records'].includes(view));
   $('#bottomNav').classList.toggle('hidden', !state.user);
-  $('#pageTitle').textContent = view === 'form' ? '新增检查' : view === 'records' ? '记录查询' : '隐患排查';
+  document.body.classList.remove('keyboard-open');
   updateAccountSurface();
   updateBottomNav();
 }
 
 function updateAccountSurface() {
   if (!state.user) return;
-  $('#accountName').textContent = `${state.user.companyName || '未绑定公司'} · ${state.user.name || ''} · ${roleLabel(state.user.role)}`;
+  const name = state.user.name || '检查员';
+  const company = state.user.companyName || '未绑定公司';
+  const initial = name.trim().slice(0, 1) || '鑫';
+  const hour = new Date().getHours();
+  const greeting = hour < 11 ? '上午好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
+  const dateText = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date()).replaceAll('/', '-');
+
+  $('#homeDate').textContent = dateText;
+  $('#homeGreeting').textContent = `${greeting}，${name}`;
+  $('#homeAvatar').textContent = initial;
+  $('#profileAvatar').textContent = initial;
+  $('#profileName').textContent = name;
+  $('#profileCompany').textContent = company;
+  $('#profilePhone').textContent = state.user.phone || '-';
+  $('#profileRole').textContent = roleLabel(state.user.role);
+  $('#profileScope').textContent = state.user.role === 'inspector' ? '仅查看本人录入' : '按账号权限查看';
 }
 
 function updateBottomNav() {
   document.querySelectorAll('#bottomNav [data-nav]').forEach((button) => {
-    const active = ['form', 'records'].includes(state.view) ? state.view : 'menu';
+    const active = ['form', 'records', 'profile'].includes(state.view) ? state.view : 'menu';
     button.classList.toggle('active', button.dataset.nav === active);
   });
 }
 
 function showMenu() {
   setView('menu');
+  loadHomeRecords().catch(() => {
+    setCloudStatus(false, '云端连接异常 · 点击重试');
+  });
+}
+
+function showProfile() {
+  setView('profile');
 }
 
 function showInspectionForm() {
   setView('form');
-  if (state.user?.name && !$('[name="inspectorName"]').value) {
+  if (state.user?.name) {
     $('[name="inspectorName"]').value = state.user.name;
   }
   if (!formStepKeys.includes(state.formStep)) {
     state.formStep = 'user';
   }
   updateStepSurface();
+  window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 function mobileRecordFilters() {
@@ -508,6 +542,40 @@ function mobileRecordFilters() {
   };
 }
 
+function setCloudStatus(connected, text) {
+  $('#cloudStatusCard').classList.toggle('offline', !connected);
+  $('#cloudStatusText').textContent = text;
+}
+
+function renderHomeRecords(records) {
+  const todayKey = today();
+  $('#homeTodayCount').textContent = records.filter((record) => record.inspection_date === todayKey).length;
+  $('#homePendingCount').textContent = records.filter((record) => record.status === 'pending').length;
+  $('#homeRecordCount').textContent = records.length;
+
+  const recent = records.slice(0, 3);
+  $('#homeRecentList').innerHTML = recent.map((record) => `
+    <article class="recent-item">
+      <button type="button" data-home-record-id="${record.id}">
+        <strong>${escapeHtml(record.customer_name || '未填写用户')}</strong>
+        <span class="${statusClass(record)}">${statusText(record)}</span>
+        <em>${escapeHtml(record.inspection_date || '-')} · ${escapeHtml(record.inspector_name || '-')}</em>
+        <span class="record-address">${escapeHtml(record.customer_address || '')}</span>
+      </button>
+    </article>
+  `).join('') || '<div class="empty-state">还没有检查记录，点击“新增检查”开始登记。</div>';
+}
+
+async function loadHomeRecords(button = null) {
+  await runWithButton(button, '刷新中...', async () => {
+    setCloudStatus(true, '正在同步云端数据');
+    const data = await api('/records');
+    state.records = data.records || [];
+    renderHomeRecords(state.records);
+    setCloudStatus(true, '云端连接正常 · 数据已同步');
+  });
+}
+
 async function showRecordsPanel() {
   setView('records');
   await loadMobileRecords();
@@ -515,9 +583,28 @@ async function showRecordsPanel() {
 
 async function loadMobileRecords(button = null, busyText = '刷新中...') {
   await runWithButton(button, busyText, async () => {
-    const data = await api(`/records${buildQuery(mobileRecordFilters())}`);
+    const data = await api('/records');
     state.records = data.records || [];
-    renderMobileRecords(state.records);
+    const filters = mobileRecordFilters();
+    const keyword = String(filters.keyword || '').trim().toLowerCase();
+    const filtered = state.records.filter((record) => {
+      const matchesKeyword = !keyword || [
+        record.customer_name,
+        record.customer_phone,
+        record.customer_address,
+        record.inspector_name
+      ].some((value) => String(value || '').toLowerCase().includes(keyword));
+      const matchesStatus = filters.status === 'pending'
+        ? record.status === 'pending'
+        : filters.status === 'done'
+          ? record.status !== 'pending'
+          : true;
+      return matchesKeyword && matchesStatus;
+    });
+    $('#allStatusCount').textContent = state.records.length;
+    $('#pendingStatusCount').textContent = state.records.filter((record) => record.status === 'pending').length;
+    $('#doneStatusCount').textContent = state.records.filter((record) => record.status !== 'pending').length;
+    renderMobileRecords(filtered);
   });
 }
 
@@ -526,8 +613,8 @@ function renderMobileRecords(records) {
   list.innerHTML = records.map((record) => `
     <article class="record-card">
       <button type="button" data-record-id="${record.id}">
-        <span class="${statusClass(record)}">${statusText(record)}</span>
         <strong>${escapeHtml(record.customer_name || '未填写用户')}</strong>
+        <span class="${statusClass(record)}">${statusText(record)}</span>
         <em>${escapeHtml(record.inspection_date || '-')} · ${escapeHtml(record.inspector_name || '-')}</em>
         <span class="record-address">${escapeHtml(record.customer_address || '')}</span>
       </button>
@@ -557,13 +644,18 @@ function renderMobileRecordDetail(record) {
   $('#mobileRecordTitle').textContent = `${record.customer_name || '未填写用户'} · ${statusText(record)}`;
   $('#mobileRecordDetail').innerHTML = [
     ['电话', record.customer_phone],
+    ['用户类型', record.customer_type],
     ['地址', record.customer_address],
     ['检查日期', record.inspection_date],
     ['检查人', record.inspector_name],
     ['配送员', record.delivery_person],
     ['结果', record.check_result],
+    ['备注', record.remark],
+    ['定位地址', record.location_address],
+    ['定位坐标', record.location_lat && record.location_lng ? `${record.location_lat}, ${record.location_lng}` : '未获取'],
     ['整改日期', record.rectification_date],
-    ['整改情况', record.rectification_note]
+    ['整改情况', record.rectification_note],
+    ['整改人', record.rectification_person]
   ].map(([label, value]) => `
     <div>
       <span>${escapeHtml(label)}</span>
@@ -579,31 +671,47 @@ function renderMobileRecordDetail(record) {
     .map((item) => `<span>${escapeHtml(item.issue_text)}</span>`)
     .join('') || '<p class="muted">无气源排查异常</p>';
 
-  const photos = record.photos || [];
-  const titleTotals = photos.reduce((totals, photo) => {
+  const photoGroups = (record.photos || []).reduce((groups, photo) => {
+    const url = photoUrl(photo);
+    if (!url) return groups;
     const title = mobilePhotoBaseTitle(photo, record);
-    totals[title] = (totals[title] || 0) + 1;
-    return totals;
+    groups[title] ||= [];
+    groups[title].push({ url, title });
+    return groups;
   }, {});
-  const titleSeen = {};
-  $('#mobilePhotoDetail').innerHTML = photos
-    .map((photo) => {
-      const url = photoUrl(photo);
-      if (!url) return '';
-      const baseTitle = mobilePhotoBaseTitle(photo, record);
-      titleSeen[baseTitle] = (titleSeen[baseTitle] || 0) + 1;
-      const title = titleTotals[baseTitle] > 1 ? `${baseTitle} ${titleSeen[baseTitle]}` : baseTitle;
-      return `
-        <a class="mobile-photo-thumb" href="${escapeHtml(url)}" target="_blank" rel="noopener">
-          <img src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy">
-          <span>${escapeHtml(title)}</span>
-        </a>
-      `;
-    })
-    .join('') || '<p class="muted">无照片</p>';
+  $('#mobilePhotoDetail').innerHTML = Object.entries(photoGroups).map(([title, photos]) => `
+    <section class="mobile-photo-group">
+      <h4>${escapeHtml(title)} · ${photos.length}张</h4>
+      ${photos.map((photo, index) => {
+        const numberedTitle = photos.length > 1 ? `${title} ${index + 1}` : title;
+        return `
+          <button class="mobile-photo-thumb" type="button"
+            data-photo-url="${escapeHtml(photo.url)}"
+            data-photo-title="${escapeHtml(numberedTitle)}">
+            <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(numberedTitle)}" loading="lazy">
+            <span>${escapeHtml(numberedTitle)}</span>
+          </button>
+        `;
+      }).join('')}
+    </section>
+  `).join('') || '<p class="muted">无照片</p>';
 
   $('#mobileRectifyForm').classList.toggle('hidden', record.status !== 'pending');
   $('#mobileRectifyForm [name="rectificationDate"]').value = today();
+}
+
+function openPhotoPreview(url, title) {
+  if (!url) return;
+  $('#photoPreviewImage').src = url;
+  $('#photoPreviewTitle').textContent = title || '记录照片';
+  $('#photoPreview').classList.remove('hidden');
+  $('#photoPreview').setAttribute('aria-hidden', 'false');
+}
+
+function closePhotoPreview() {
+  $('#photoPreview').classList.add('hidden');
+  $('#photoPreview').setAttribute('aria-hidden', 'true');
+  $('#photoPreviewImage').removeAttribute('src');
 }
 
 async function login() {
@@ -641,7 +749,7 @@ async function restoreLoginState() {
 }
 
 function logout(confirmFirst = true) {
-  if (confirmFirst && !window.confirm('确定退出当前账号并切换用户吗？本机草稿会一并清除。')) {
+  if (confirmFirst && !window.confirm('确定退出当前账号吗？')) {
     return;
   }
   state.token = '';
@@ -649,11 +757,51 @@ function logout(confirmFirst = true) {
   state.location = null;
   state.records = [];
   state.currentRecord = null;
+  state.clientUuid = '';
+  state.cloudDraftSaved = false;
   localStorage.removeItem(tokenKey);
-  localStorage.removeItem(draftKey);
+  localStorage.removeItem(cloudDraftKey);
   clearForm(false);
   setView('login');
   if (confirmFirst) showToast('已退出，可以切换账号登录。');
+}
+
+function openPasswordDialog() {
+  $('#passwordForm').reset();
+  $('#passwordDialog').classList.remove('hidden');
+  $('#passwordDialog').setAttribute('aria-hidden', 'false');
+}
+
+function closePasswordDialog() {
+  $('#passwordDialog').classList.add('hidden');
+  $('#passwordDialog').setAttribute('aria-hidden', 'true');
+  $('#passwordForm').reset();
+}
+
+async function changePassword(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const currentPassword = String(form.get('currentPassword') || '');
+  const newPassword = String(form.get('newPassword') || '');
+  const confirmPassword = String(form.get('confirmPassword') || '');
+  if (newPassword.length < 8) {
+    showToast('新密码至少 8 位。');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showToast('两次输入的新密码不一致。');
+    return;
+  }
+  const button = event.submitter;
+  await runWithButton(button, '修改中...', async () => {
+    await api('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+  });
+  closePasswordDialog();
+  logout(false);
+  showToast('密码已修改，请使用新密码重新登录。');
 }
 
 function locate(auto = false) {
@@ -798,7 +946,10 @@ async function uploadPhotoBlob(photo) {
 async function uploadStoredPhotos(field) {
   const uploaded = [];
   for (const photo of state.photos[field] || []) {
-    uploaded.push(await uploadPhotoBlob(photo));
+    if (!photo.remotePath) {
+      photo.remotePath = await uploadPhotoBlob(photo);
+    }
+    uploaded.push(photo.remotePath);
   }
   return uploaded.filter(Boolean);
 }
@@ -934,6 +1085,45 @@ function getFormData() {
   };
 }
 
+function ensureClientUuid() {
+  if (!state.clientUuid) {
+    state.clientUuid = uniqueId();
+    localStorage.setItem(cloudDraftKey, state.clientUuid);
+  }
+  return state.clientUuid;
+}
+
+function buildRecordPayload(form, hazardCodes, gasSourceSelected, photos) {
+  return {
+    clientUuid: ensureClientUuid(),
+    ...form,
+    hazardItems: hazardCodes,
+    gasSourceIssues: gasSourceSelected,
+    photos,
+    location: state.location
+      ? { ...state.location, address: form.customerAddress }
+      : { address: form.customerAddress }
+  };
+}
+
+async function saveCloudDraft() {
+  const form = getFormData();
+  const storefront = await uploadStoredPhotos('storefront');
+  const payload = buildRecordPayload(form, [], [], {
+    storefront,
+    hazard: {},
+    cylinder_qr: [],
+    cylinder: []
+  });
+  await api('/records/drafts', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  state.cloudDraftSaved = true;
+  updateStepSurface();
+  showToast('用户与现场信息已保存到云端。');
+}
+
 async function submitInspection(event) {
   event.preventDefault();
   if (!validateAllBeforeSubmit()) return;
@@ -974,25 +1164,21 @@ async function submitInspection(event) {
       photos.hazard[code] = await uploadStoredPhotos(`hazardPhoto_${code}`);
     }
 
-    await api('/records', {
+    await api('/records/drafts/submit', {
       method: 'POST',
-      body: JSON.stringify({
-        ...form,
-        hazardItems: hazardCodes,
-        gasSourceIssues: gasSourceSelected,
-        photos,
-        location: state.location || { address: form.customerAddress }
-      })
+      body: JSON.stringify(buildRecordPayload(form, hazardCodes, gasSourceSelected, photos))
     });
-    localStorage.removeItem(draftKey);
+    state.clientUuid = '';
+    state.cloudDraftSaved = false;
+    localStorage.removeItem(cloudDraftKey);
     clearForm(false);
-    showToast('保存成功，可以继续下一户。');
-    showMenu();
+    await showRecordsPanel();
+    showToast('记录已提交并保存到云端。');
   } catch (error) {
     showToast(error.message);
   } finally {
     submitButton.disabled = false;
-    submitButton.textContent = '保存核查记录';
+    submitButton.textContent = '提交记录';
   }
 }
 
@@ -1017,52 +1203,13 @@ async function submitMobileRectification(event) {
   });
 }
 
-function saveDraft() {
-  localStorage.setItem(draftKey, JSON.stringify({
-    form: getFormData(),
-    hazardItems: selectedValues('hazardItems'),
-    gasSourceIssues: selectedValues('gasSourceIssues'),
-    location: state.location
-  }));
-  showToast('草稿已保存在本机。');
-}
-
-function restoreDraft() {
-  const raw = localStorage.getItem(draftKey);
-  if (!raw) return false;
-  try {
-    const draft = JSON.parse(raw);
-    Object.entries(draft.form || {}).forEach(([key, value]) => {
-      if (key === 'checkResult') {
-        const radio = document.querySelector(`[name="checkResult"][value="${value}"]`);
-        if (radio) radio.checked = true;
-        return;
-      }
-      const field = document.querySelector(`[name="${key}"]`);
-      if (field) field.value = value;
-    });
-    document.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
-      checkbox.checked = [...(draft.hazardItems || []), ...(draft.gasSourceIssues || [])].includes(checkbox.value);
-    });
-    state.location = draft.location || null;
-    if (state.location) {
-      renderAddressSurface();
-    }
-    updateHazardVisibility();
-    state.formStep = 'user';
-    showInspectionForm();
-    showToast('已恢复本机草稿，照片需重新拍摄。');
-    return true;
-  } catch {
-    localStorage.removeItem(draftKey);
-    return false;
-  }
-}
-
 function clearForm(showMessage = true) {
   $('#inspectionForm').reset();
   $('[name="inspectionDate"]').value = today();
   state.location = null;
+  state.clientUuid = '';
+  state.cloudDraftSaved = false;
+  localStorage.removeItem(cloudDraftKey);
   clearAllPhotos();
   setLocationSurface('pending', '用户地址', '填写用户地址后用于照片水印；拍摄门头照片时自动尝试定位。');
   document.querySelectorAll('.hazard-item').forEach((item) => item.classList.remove('selected'));
@@ -1094,20 +1241,34 @@ function updateHazardVisibility() {
 }
 
 function bindEvents() {
-  $('#loginBtn').addEventListener('click', () => login().catch((error) => showToast(error.message)));
+  $('#loginForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    runWithButton($('#loginBtn'), '登录中...', login).catch((error) => showToast(error.message));
+  });
   $('#logoutBtn').addEventListener('click', () => logout(true));
   $('#backMenuBtn').addEventListener('click', showMenu);
   $('#terminalFeatureBtn').addEventListener('click', showInspectionForm);
   $('#recordsFeatureBtn').addEventListener('click', () => showRecordsPanel().catch((error) => showToast(error.message)));
-  $('#dataFeatureBtn').addEventListener('click', () => showToast('数据备份和完整导出请使用电脑端后台。'));
-  $('#versionFeatureBtn').addEventListener('click', () => showToast('当前为 H5 测试版，按账号权限使用。'));
-  $('#draftFeatureBtn').addEventListener('click', () => {
-    if (!restoreDraft()) showToast('本机暂无草稿。');
+  $('#homeAvatar').addEventListener('click', showProfile);
+  $('#cloudStatusCard').addEventListener('click', (event) => {
+    loadHomeRecords(event.currentTarget).catch((error) => {
+      setCloudStatus(false, '云端连接异常 · 点击重试');
+      showToast(error.message);
+    });
+  });
+  $('#homeRecentList').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-home-record-id]');
+    if (!button) return;
+    openMobileRecord(button.dataset.homeRecordId, button).catch((error) => showToast(error.message));
   });
   $('#recordsRefreshBtn').addEventListener('click', (event) => loadMobileRecords(event.currentTarget).then(() => showToast('记录已刷新')).catch((error) => showToast(error.message)));
   $('#mobileRecordFilters').addEventListener('submit', (event) => {
     event.preventDefault();
     loadMobileRecords(event.submitter, '查询中...').then(() => showToast('查询完成')).catch((error) => showToast(error.message));
+  });
+  $('#mobileRecordFilters').addEventListener('change', (event) => {
+    if (!event.target.matches('[name="status"]')) return;
+    loadMobileRecords().catch((error) => showToast(error.message));
   });
   $('#mobileRecordList').addEventListener('click', (event) => {
     const button = event.target.closest('[data-record-id]');
@@ -1118,15 +1279,32 @@ function bindEvents() {
   $('#mobileRecordDetailSheet').addEventListener('click', (event) => {
     if (event.target.dataset.mobileDetailClose) closeMobileRecordDetail();
   });
+  $('#mobilePhotoDetail').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-photo-url]');
+    if (!button) return;
+    openPhotoPreview(button.dataset.photoUrl, button.dataset.photoTitle);
+  });
+  $('#photoPreviewClose').addEventListener('click', closePhotoPreview);
+  $('#photoPreview').addEventListener('click', (event) => {
+    if (event.target.dataset.photoPreviewClose) closePhotoPreview();
+  });
   $('#mobileRectifyForm').addEventListener('submit', (event) => submitMobileRectification(event).catch((error) => showToast(error.message)));
+  $('#changePasswordBtn').addEventListener('click', openPasswordDialog);
+  $('#passwordCloseBtn').addEventListener('click', closePasswordDialog);
+  $('#passwordDialog').addEventListener('click', (event) => {
+    if (event.target.dataset.passwordClose) closePasswordDialog();
+  });
+  $('#passwordForm').addEventListener('submit', (event) => changePassword(event).catch((error) => showToast(error.message)));
   $('#locateBtn').addEventListener('click', () => locate(false));
   $('#formStepper').addEventListener('click', (event) => {
     const button = event.target.closest('[data-step-target]');
     if (!button) return;
-    setFormStep(button.dataset.stepTarget);
+    setFormStep(button.dataset.stepTarget).catch((error) => showToast(error.message));
   });
   $('#stepPrevBtn').addEventListener('click', previousFormStep);
-  $('#stepNextBtn').addEventListener('click', nextFormStep);
+  $('#stepNextBtn').addEventListener('click', (event) => {
+    runWithButton(event.currentTarget, '保存中...', nextFormStep).catch((error) => showToast(error.message));
+  });
   $('#inspectionForm').addEventListener('submit', submitInspection);
   $('#inspectionForm').addEventListener('input', () => {
     renderAddressSurface();
@@ -1154,8 +1332,10 @@ function bindEvents() {
     if (!button) return;
     deletePhoto(button.dataset.photoField, button.dataset.photoDelete);
   });
-  $('#saveDraftBtn').addEventListener('click', saveDraft);
-  $('#clearFormBtn').addEventListener('click', () => clearForm(true));
+  $('#clearFormBtn').addEventListener('click', () => {
+    clearForm(false);
+    showMenu();
+  });
   document.querySelectorAll('[name="checkResult"]').forEach((radio) => {
     radio.addEventListener('change', updateHazardVisibility);
   });
@@ -1168,8 +1348,21 @@ function bindEvents() {
     if (button.dataset.nav === 'menu') showMenu();
     if (button.dataset.nav === 'form') showInspectionForm();
     if (button.dataset.nav === 'records') showRecordsPanel().catch((error) => showToast(error.message));
-    if (button.dataset.nav === 'data') showToast('数据统计、导出和备份请使用电脑端后台。');
-    if (button.dataset.nav === 'account') showToast($('#accountName').textContent);
+    if (button.dataset.nav === 'profile') showProfile();
+  });
+
+  document.addEventListener('focusin', (event) => {
+    if (state.view !== 'form' || !event.target.matches('input:not([type="file"]), select, textarea')) return;
+    document.body.classList.add('keyboard-open');
+    window.setTimeout(() => event.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 240);
+  });
+  document.addEventListener('focusout', () => {
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (!active?.matches('input:not([type="file"]), select, textarea')) {
+        document.body.classList.remove('keyboard-open');
+      }
+    }, 180);
   });
 }
 

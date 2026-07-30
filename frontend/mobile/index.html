@@ -2,110 +2,265 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>鑫远燃气隐患排查</title>
-  <link rel="stylesheet" href="./styles.css?v=20260708-h5-ui-1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#faf9f5">
+  <title>淮北鑫远燃气隐患排查</title>
+  <link rel="stylesheet" href="./styles.css?v=20260729-app-parity-1">
 </head>
 <body>
-  <main class="page">
-    <section class="topbar">
-      <button id="backMenuBtn" class="ghost hidden" type="button">返回</button>
-      <div>
-        <p class="eyebrow">淮北鑫远燃气</p>
-        <h1 id="pageTitle">隐患排查</h1>
+  <main class="mobile-app">
+    <section id="loginPanel" class="login-screen">
+      <div class="login-brand">
+        <span class="brand-mark" aria-hidden="true">鑫</span>
+        <span><strong>淮北鑫远燃气</strong><em>隐患排查系统</em></span>
       </div>
-      <button id="logoutBtn" class="ghost hidden" type="button">退出/切换账号</button>
-    </section>
-
-    <section id="accountPanel" class="account-panel hidden">
-      <span>当前账号</span>
-      <strong id="accountName">-</strong>
-    </section>
-
-    <section id="loginPanel" class="panel login-panel">
-      <h2>检查员登录</h2>
-      <label>手机号<input id="loginPhone" inputmode="tel" autocomplete="username"></label>
-      <label>密码<input id="loginPassword" type="password" autocomplete="current-password"></label>
-      <button id="loginBtn" type="button" class="primary">登录</button>
-      <p class="hint">正式使用前请由管理员创建账号并修改默认密码。</p>
-    </section>
-
-    <section id="menuPanel" class="hidden">
-      <div class="brand-card">
-        <div class="logo-mark">燃</div>
-        <p class="eyebrow">现场工作台</p>
-        <h2>请选择业务功能</h2>
-        <p>按现场任务进入登记、查询和整改页面</p>
+      <div class="login-copy">
+        <p class="date-line">现场安全工作台</p>
+        <h1>欢迎回来</h1>
+        <p>登录后开始今天的现场检查</p>
       </div>
-
-      <div class="feature-grid">
-        <button id="terminalFeatureBtn" class="feature-card" type="button">
-          <span class="feature-icon check">+</span>
-          <strong>新增终端核查</strong>
-          <em>现场登记、拍照水印</em>
-        </button>
-        <button id="recordsFeatureBtn" class="feature-card" type="button">
-          <span class="feature-icon list">查</span>
-          <strong>记录查询与整改</strong>
-          <em>查询记录、提交整改</em>
-        </button>
-      </div>
-
-      <button id="draftFeatureBtn" class="wide-card" type="button">
-        <span class="feature-icon save">存</span>
-        <span><strong>本机草稿</strong><em>继续未提交的现场记录</em></span>
-      </button>
-
-      <button id="dataFeatureBtn" class="wide-card" type="button">
-        <span class="feature-icon save">下</span>
-        <span><strong>数据管理与备份</strong><em>导出、备份请在电脑端后台操作</em></span>
-      </button>
-
-      <button id="versionFeatureBtn" class="wide-card" type="button">
-        <span class="feature-icon info">i</span>
-        <span><strong>版本与使用说明</strong><em>当前 H5 测试版，按账号权限使用</em></span>
-      </button>
+      <form id="loginForm" class="login-form">
+        <label>手机号
+          <input id="loginPhone" inputmode="tel" autocomplete="username" placeholder="请输入登录手机号">
+        </label>
+        <label>密码
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="请输入密码">
+        </label>
+        <button id="loginBtn" type="submit" class="primary wide-button">登录</button>
+      </form>
+      <p class="login-help">账号由管理员在后台分配</p>
+      <p class="secure-note">安全连接 · www.gashbxy.com</p>
     </section>
 
-    <section id="recordsPanel" class="records-panel hidden">
-      <section class="panel-title-card">
+    <section id="menuPanel" class="app-view hidden">
+      <header class="home-header">
         <div>
-          <p class="eyebrow">记录中心</p>
-          <h2>查询与整改</h2>
-          <span>待整改记录可进入详情后提交整改闭环。</span>
+          <p id="homeDate" class="date-line"></p>
+          <h1 id="homeGreeting">您好</h1>
         </div>
-        <button id="recordsRefreshBtn" class="mini-button" type="button">刷新</button>
+        <button id="homeAvatar" class="avatar-button" type="button" aria-label="打开我的账号">鑫</button>
+      </header>
+
+      <button id="cloudStatusCard" class="cloud-status" type="button">
+        <span id="cloudStatusIcon" class="cloud-dot" aria-hidden="true"></span>
+        <span id="cloudStatusText">正在连接云端</span>
+      </button>
+
+      <section class="start-panel">
+        <p>终端用户隐患核查</p>
+        <h2>开始新的现场检查</h2>
+        <span>信息、定位和照片会实时保存到云端。</span>
+        <button id="terminalFeatureBtn" class="start-button" type="button"><b>+</b> 新增检查</button>
       </section>
 
-      <form id="mobileRecordFilters" class="mobile-filters">
-        <label class="search-field">搜索
+      <section class="section-block">
+        <div class="section-heading">
+          <div><p>今日工作</p><h2>检查概况</h2></div>
+        </div>
+        <div class="stat-grid">
+          <div><strong id="homeTodayCount">0</strong><span>今日完成</span></div>
+          <div><strong id="homePendingCount">0</strong><span>待整改</span></div>
+          <div><strong id="homeRecordCount">0</strong><span>我的记录</span></div>
+        </div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-heading">
+          <div><p>最近动态</p><h2>最近记录</h2></div>
+          <button id="recordsFeatureBtn" class="text-button" type="button">查看全部</button>
+        </div>
+        <div id="homeRecentList" class="recent-list">
+          <div class="empty-state">正在读取最近记录...</div>
+        </div>
+      </section>
+
+      <section class="home-note">
+        <strong>数据管理</strong>
+        <span>完整筛选、导出和备份请在电脑管理后台操作。</span>
+      </section>
+    </section>
+
+    <section id="recordsPanel" class="app-view hidden">
+      <header class="view-header">
+        <div>
+          <p class="date-line">仅显示我录入的数据</p>
+          <h1>我的记录</h1>
+        </div>
+        <button id="recordsRefreshBtn" class="icon-button" type="button" title="刷新记录" aria-label="刷新记录">↻</button>
+      </header>
+
+      <form id="mobileRecordFilters" class="record-filters">
+        <label class="search-box">
+          <span aria-hidden="true">查</span>
           <input name="keyword" placeholder="用户、电话、地址、检查人">
         </label>
         <div class="status-tabs" role="group" aria-label="记录状态筛选">
-          <label><input type="radio" name="status" value="" checked><span>全部</span></label>
-          <label><input type="radio" name="status" value="pending"><span>待整改</span></label>
-          <label><input type="radio" name="status" value="rectified"><span>已整改</span></label>
+          <label><input type="radio" name="status" value="" checked><span>全部 <b id="allStatusCount">0</b></span></label>
+          <label><input type="radio" name="status" value="pending"><span>待整改 <b id="pendingStatusCount">0</b></span></label>
+          <label><input type="radio" name="status" value="done"><span>已完成 <b id="doneStatusCount">0</b></span></label>
         </div>
-        <div class="date-pair">
-          <label>开始<input name="dateFrom" type="date"></label>
-          <label>结束<input name="dateTo" type="date"></label>
-        </div>
-        <button class="primary" type="submit">查询记录</button>
+        <button class="primary filter-submit" type="submit">查询</button>
       </form>
 
       <section id="mobileRecordList" class="record-list"></section>
+      <p class="admin-note">数据下载请登录 www.gashbxy.com/admin/</p>
     </section>
+
+    <section id="profilePanel" class="app-view hidden">
+      <header class="view-header profile-header">
+        <div>
+          <p class="date-line">账号与安全</p>
+          <h1>我的账号</h1>
+        </div>
+        <span id="profileAvatar" class="profile-avatar">鑫</span>
+      </header>
+
+      <section class="profile-summary">
+        <strong id="profileName">-</strong>
+        <span id="profileCompany">-</span>
+      </section>
+
+      <section class="settings-list">
+        <div><span>手机号</span><strong id="profilePhone">-</strong></div>
+        <div><span>账号角色</span><strong id="profileRole">-</strong></div>
+        <div><span>数据范围</span><strong id="profileScope">仅查看本人录入</strong></div>
+      </section>
+
+      <section class="settings-list action-list">
+        <button id="changePasswordBtn" type="button"><span>修改密码</span><b>›</b></button>
+        <a href="https://www.gashbxy.com/admin/" target="_blank" rel="noopener"><span>电脑管理后台</span><b>›</b></a>
+      </section>
+
+      <button id="logoutBtn" class="danger-button" type="button">退出登录</button>
+
+      <footer class="profile-footer">
+        <strong>淮北鑫远燃气有限公司</strong>
+        <span>市场部 · 韩永龙</span>
+      </footer>
+    </section>
+
+    <form id="inspectionForm" class="app-view inspection-form hidden" novalidate>
+      <header class="form-topbar">
+        <button id="backMenuBtn" class="back-button" type="button" aria-label="返回首页">‹</button>
+        <h1>新增检查</h1>
+        <span></span>
+      </header>
+
+      <nav id="formStepper" class="form-stepper" aria-label="登记步骤">
+        <button type="button" data-step-target="user"><b>1</b><span>用户与现场</span></button>
+        <i></i>
+        <button type="button" data-step-target="hazard"><b>2</b><span>核查与照片</span></button>
+        <i></i>
+        <button type="button" data-step-target="review"><b>3</b><span>确认提交</span></button>
+      </nav>
+      <p id="stepStatus" class="sr-only">1/3 用户与现场</p>
+
+      <section class="form-card intro-card form-step" data-step="user">
+        <p class="card-kicker">新增终端核查</p>
+        <h2>填写完整信息后开始拍照</h2>
+        <p>照片水印会使用用户、检查人、配送员、地址、时间和定位信息。</p>
+      </section>
+
+      <section class="form-card form-step" data-step="user">
+        <div class="card-heading"><span class="card-icon">用</span><h2>用户信息</h2></div>
+        <label>用户名 <em>*</em><input name="customerName" placeholder="请输入用户名" required></label>
+        <label>电话 <em>*</em><input name="customerPhone" inputmode="tel" placeholder="请输入联系电话" required></label>
+        <label>用户类型 <em>*</em><select name="customerType" required id="customerType"></select></label>
+        <label>用户地址 <em>*</em><textarea name="customerAddress" rows="2" placeholder="请输入详细地址" required></textarea></label>
+      </section>
+
+      <section class="form-card form-step" data-step="user">
+        <div class="card-heading"><span class="card-icon">检</span><h2>检查信息</h2></div>
+        <label>检查人 <em>*</em><input name="inspectorName" placeholder="自动关联当前登录账号" readonly required></label>
+        <label>检查日期 <em>*</em><input name="inspectionDate" type="date" required></label>
+        <label>配送员 <em>*</em><input name="deliveryPerson" placeholder="请输入配送员" required></label>
+      </section>
+
+      <section class="form-card form-step" data-step="user">
+        <div class="card-heading"><span class="card-icon">址</span><h2>用户地址与门头照片</h2></div>
+        <p class="hint">请先完成上方信息。拍摄门头照片时会自动尝试定位，并生成完整水印。</p>
+        <div id="locationCard" class="location-card pending">
+          <div><strong id="locationTitle">用户地址</strong><span id="locationStatus">填写用户地址后用于照片水印。</span></div>
+          <button id="locateBtn" type="button" class="mini-button">重新定位</button>
+        </div>
+        <label class="photo-tile" data-photo-label="门头照片">
+          <input name="storefront" type="file" accept="image/*" capture="environment" required>
+          <span>拍摄门头照片</span>
+          <em>现场拍摄 · 自动添加水印</em>
+        </label>
+      </section>
+
+      <section class="form-card form-step" data-step="hazard">
+        <div class="card-heading"><span class="card-icon">结</span><h2>检查结果</h2></div>
+        <div class="segmented">
+          <label><input type="radio" name="checkResult" value="隐患已清零" checked><span><strong>隐患已清零</strong><em>现场没有未清零隐患</em></span></label>
+          <label><input type="radio" name="checkResult" value="隐患未清零"><span><strong>隐患未清零</strong><em>需要选择项目并拍照</em></span></label>
+        </div>
+      </section>
+
+      <section id="clearedHintPanel" class="form-card cleared-hint form-step" data-step="hazard">
+        <p class="card-kicker">未清零隐患项目</p>
+        <p>当前为“隐患已清零”。如发现问题，请切换为“隐患未清零”后逐项登记。</p>
+      </section>
+
+      <section id="hazardPanel" class="form-step hidden" data-step="hazard">
+        <section class="form-card">
+          <div class="card-heading"><span class="card-icon">隐</span><h2>未清零隐患项目</h2></div>
+          <p class="hint">每个勾选的隐患项目都需要拍摄对应照片，可上传多张。</p>
+        </section>
+        <div id="hazardCategoryList"></div>
+      </section>
+
+      <section class="form-card gas-source-card form-step" data-step="hazard">
+        <div class="card-heading"><span class="card-icon">气</span><h2>气源排查登记</h2></div>
+        <p class="hint">如有异常需勾选登记，并至少拍摄一类钢瓶照片。</p>
+        <div id="gasSourceList" class="check-list"></div>
+        <div class="photo-grid">
+          <label class="photo-tile" data-photo-label="钢瓶二维码照片">
+            <input name="cylinderQr" type="file" accept="image/*" capture="environment" multiple>
+            <span>钢瓶二维码拍照</span><em>可拍多张</em>
+          </label>
+          <label class="photo-tile" data-photo-label="钢瓶照片">
+            <input name="cylinder" type="file" accept="image/*" capture="environment" multiple>
+            <span>钢瓶拍照</span><em>可拍多张</em>
+          </label>
+        </div>
+      </section>
+
+      <section class="form-card form-step" data-step="hazard">
+        <div class="card-heading"><span class="card-icon">注</span><h2>备注</h2></div>
+        <textarea name="remark" rows="4" placeholder="请输入备注信息"></textarea>
+      </section>
+
+      <section class="form-card review-card form-step" data-step="review">
+        <p class="card-kicker">确认提交</p>
+        <h2>请核对本次检查</h2>
+        <p class="hint">提交后记录会保存到云端，并可在手机记录页和电脑管理后台查看。</p>
+        <div id="reviewSummary" class="review-summary"></div>
+      </section>
+
+      <section id="cloudDraftBanner" class="cloud-draft-banner form-step hidden" data-step="hazard">
+        <span class="cloud-dot"></span>
+        <p><strong>用户与现场信息已保存到云端</strong><em>继续完成核查并提交正式记录</em></p>
+      </section>
+
+      <canvas id="watermarkCanvas" class="hidden"></canvas>
+
+      <div class="app-action-bar">
+        <button id="clearFormBtn" class="secondary" type="button">取消</button>
+        <button id="stepPrevBtn" class="secondary hidden" type="button">上一步</button>
+        <button id="stepNextBtn" class="primary" type="button">下一步</button>
+        <button id="submitRecordBtn" class="primary hidden" type="submit">提交记录</button>
+      </div>
+    </form>
 
     <section id="mobileRecordDetailSheet" class="mobile-sheet hidden" aria-hidden="true">
       <div class="sheet-backdrop" data-mobile-detail-close="1"></div>
       <article class="sheet-panel">
         <div class="sheet-handle"></div>
         <div class="sheet-head">
-          <div>
-            <p id="mobileRecordCompany" class="eyebrow"></p>
-            <h2 id="mobileRecordTitle">记录详情</h2>
-          </div>
-          <button id="mobileRecordCloseBtn" class="ghost compact-button" type="button">关闭</button>
+          <div><p id="mobileRecordCompany" class="date-line"></p><h2 id="mobileRecordTitle">记录详情</h2></div>
+          <button id="mobileRecordCloseBtn" class="icon-button" type="button" aria-label="关闭详情">×</button>
         </div>
         <div id="mobileRecordDetail" class="mobile-detail-grid"></div>
         <section class="mobile-detail-section">
@@ -114,7 +269,7 @@
           <div id="mobileGasDetail" class="tag-list"></div>
         </section>
         <section class="mobile-detail-section">
-          <h3>照片</h3>
+          <h3>现场照片</h3>
           <div id="mobilePhotoDetail" class="mobile-photo-list"></div>
         </section>
         <form id="mobileRectifyForm" class="rectify-card hidden">
@@ -123,170 +278,41 @@
           <label>整改情况<textarea name="rectificationNote" rows="3" placeholder="填写整改措施、复核情况"></textarea></label>
           <label class="photo-tile" data-photo-label="整改照片">
             <input name="rectificationPhotos" type="file" accept="image/*" capture="environment" multiple>
-            <span>拍摄整改照片</span>
-            <em>可拍多张</em>
+            <span>拍摄整改照片</span><em>可拍多张</em>
           </label>
-          <button class="primary" type="submit">提交整改</button>
+          <button class="primary wide-button" type="submit">提交整改</button>
         </form>
       </article>
     </section>
 
-    <form id="inspectionForm" class="hidden" novalidate>
-      <section class="form-card intro-card">
-        <div class="card-heading">
-          <span class="card-icon">新</span>
-          <div>
-            <h2>新增终端核查</h2>
-            <p>按 APP 版“终端隐患核查清单登记”录入，保存后写入云端并按公司隔离。</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="form-stepper-card hidden" aria-hidden="true">
-        <div id="stepStatus" class="step-status">1/5 用户信息</div>
-        <nav id="formStepper" class="form-stepper" aria-label="登记步骤">
-          <button type="button" data-step-target="user"><b>1</b><span>用户</span></button>
-          <button type="button" data-step-target="inspect"><b>2</b><span>检查</span></button>
-          <button type="button" data-step-target="photo"><b>3</b><span>拍照</span></button>
-          <button type="button" data-step-target="hazard"><b>4</b><span>隐患</span></button>
-          <button type="button" data-step-target="review"><b>5</b><span>提交</span></button>
-        </nav>
-      </section>
-
-      <section class="form-card form-step" data-step="user">
-        <div class="card-heading">
-          <span class="card-icon">用</span>
-          <h3>用户信息</h3>
-        </div>
-        <label>用户名 *<input name="customerName" placeholder="请输入用户名" required></label>
-        <label>电话 *<input name="customerPhone" inputmode="tel" placeholder="请输入联系电话" required></label>
-        <label>用户类型 *<select name="customerType" required id="customerType"></select></label>
-        <label>用户地址 *<textarea name="customerAddress" rows="2" placeholder="请输入用户地址" required></textarea></label>
-      </section>
-
-      <section class="form-card form-step" data-step="inspect">
-        <div class="card-heading">
-          <span class="card-icon">检</span>
-          <h3>检查信息</h3>
-        </div>
-        <label>检查人 *<input name="inspectorName" placeholder="请输入检查人" required></label>
-        <label>检查日期 *<input name="inspectionDate" type="date" required></label>
-        <label>配送员 *<input name="deliveryPerson" placeholder="请输入配送员" required></label>
-      </section>
-
-      <section class="form-card form-step" data-step="photo">
-        <div class="card-heading">
-          <span class="card-icon">照</span>
-          <h3>门头照片 *</h3>
-        </div>
-        <p class="hint">请先填写用户、电话、用户类型、用户地址、检查人、配送员。点击拍照时会尝试定位，后续照片都使用门头照片定位和用户地址生成水印。</p>
-        <div id="locationCard" class="location-card pending">
-          <div>
-            <strong id="locationTitle">用户地址</strong>
-            <span id="locationStatus">填写用户地址后用于照片水印；拍摄门头照片时自动尝试定位。</span>
-          </div>
-          <button id="locateBtn" type="button" class="mini-button">重新定位</button>
-        </div>
-        <label class="photo-tile" data-photo-label="门头照片">
-          <input name="storefront" type="file" accept="image/*" capture="environment" required>
-          <span>拍摄门头照片</span>
-          <em>现场拍摄，自动加水印</em>
-        </label>
-      </section>
-
-      <section class="form-card form-step" data-step="photo">
-        <div class="card-heading">
-          <span class="card-icon">结</span>
-          <h3>检查结果</h3>
-        </div>
-        <div class="segmented">
-          <label><input type="radio" name="checkResult" value="隐患已清零" checked><span>隐患已清零<em>现场检查无异常</em></span></label>
-          <label><input type="radio" name="checkResult" value="隐患未清零"><span>隐患未清零<em>需选择隐患并拍照</em></span></label>
-        </div>
-      </section>
-
-      <section id="clearedHintPanel" class="form-card cleared-hint form-step" data-step="hazard">
-        <div class="card-heading">
-          <span class="card-icon">隐</span>
-          <h3>未清零隐患项目</h3>
-        </div>
-        <p>当前为“隐患已清零”。继续登记气源排查、钢瓶照片和备注后即可保存。</p>
-      </section>
-
-      <section class="form-card highlight-card gas-source-card form-step" data-step="hazard">
-        <div class="card-heading">
-          <span class="card-icon">气</span>
-          <h3>气源排查登记（如有异常需登记）</h3>
-        </div>
-        <div id="gasSourceList" class="check-list"></div>
-        <div class="photo-grid">
-          <label class="photo-tile" data-photo-label="钢瓶二维码照片">
-            <input name="cylinderQr" type="file" accept="image/*" capture="environment" multiple>
-            <span>钢瓶二维码拍照</span>
-            <em>可拍多张</em>
-          </label>
-          <label class="photo-tile" data-photo-label="钢瓶照片">
-            <input name="cylinder" type="file" accept="image/*" capture="environment" multiple>
-            <span>钢瓶拍照</span>
-            <em>可拍多张</em>
-          </label>
-        </div>
-      </section>
-
-      <section id="hazardPanel" class="hidden form-step" data-step="hazard">
-        <section class="form-card">
-          <div class="card-heading">
-            <span class="card-icon">隐</span>
-            <h3>未清零隐患项目</h3>
-          </div>
-          <p class="hint">当前为“隐患未清零”时，请登记异常项目、钢瓶照片和对应隐患照片。</p>
-        </section>
-
-        <div id="hazardCategoryList"></div>
-      </section>
-
-      <section class="form-card form-step" data-step="hazard">
-        <div class="card-heading">
-          <span class="card-icon">备</span>
-          <h3>备注</h3>
-        </div>
-        <textarea name="remark" rows="4" placeholder="请输入备注信息"></textarea>
-      </section>
-
-      <section class="form-card review-card form-step" data-step="review">
-        <div class="card-heading">
-          <span class="card-icon">提</span>
-          <h3>提交前确认</h3>
-        </div>
-        <p class="hint">确认用户、检查结果和照片后提交。提交后电脑端后台可查看详情并导出完整数据。</p>
-        <div id="reviewSummary" class="review-summary"></div>
-      </section>
-
-      <canvas id="watermarkCanvas" class="hidden"></canvas>
-
-      <div class="bottom-actions app-action-bar">
-        <div class="quick-actions">
-          <button id="clearFormBtn" class="ghost" type="button">清空</button>
-          <button id="saveDraftBtn" class="secondary hidden" type="button">保存草稿</button>
-        </div>
-        <div class="step-actions">
-          <button id="stepPrevBtn" class="ghost hidden" type="button">上一步</button>
-          <button id="stepNextBtn" class="primary hidden" type="button">下一步</button>
-          <button id="submitRecordBtn" class="primary" type="submit">保存核查记录</button>
-        </div>
+    <section id="photoPreview" class="photo-lightbox hidden" aria-hidden="true">
+      <button id="photoPreviewClose" class="lightbox-close" type="button" aria-label="关闭照片">×</button>
+      <div class="lightbox-stage" data-photo-preview-close="1">
+        <img id="photoPreviewImage" alt="记录照片预览">
       </div>
-    </form>
+      <p id="photoPreviewTitle"></p>
+    </section>
+
+    <section id="passwordDialog" class="dialog-layer hidden" aria-hidden="true">
+      <div class="dialog-backdrop" data-password-close="1"></div>
+      <form id="passwordForm" class="dialog-card">
+        <div class="dialog-head"><h2>修改密码</h2><button id="passwordCloseBtn" type="button" aria-label="关闭">×</button></div>
+        <label>当前密码<input name="currentPassword" type="password" autocomplete="current-password" required></label>
+        <label>新密码<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label>确认新密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button class="primary wide-button" type="submit">确认修改</button>
+      </form>
+    </section>
 
     <nav id="bottomNav" class="bottom-nav hidden">
-      <button data-nav="menu" type="button">首页</button>
-      <button data-nav="form" type="button">核查</button>
-      <button data-nav="records" type="button">记录</button>
-      <button data-nav="data" type="button">数据</button>
-      <button data-nav="account" type="button">我的信息</button>
+      <button data-nav="menu" type="button"><b>首</b><span>首页</span></button>
+      <button data-nav="form" type="button"><b>+</b><span>登记</span></button>
+      <button data-nav="records" type="button"><b>查</b><span>记录</span></button>
+      <button data-nav="profile" type="button"><b>我</b><span>我的</span></button>
     </nav>
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260708-h5-ui-1"></script>
+  <script type="module" src="./app.js?v=20260729-app-parity-1"></script>
 </body>
 </html>
