@@ -2,10 +2,13 @@ package com.xinyuan.gas.ui.cloud
 
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -465,12 +469,18 @@ private fun CloudShell(
     var selectedTab by rememberSaveable { mutableStateOf(CloudTab.HOME) }
     var recordsInitialStatus by rememberSaveable { mutableStateOf("") }
     var formSessionKey by rememberSaveable { mutableStateOf(0) }
-    var rectificationActive by rememberSaveable { mutableStateOf(false) }
+    var recordOverlayActive by rememberSaveable { mutableStateOf(false) }
     val keyboardVisible = WindowInsets.isImeVisible
+    BackHandler(enabled = selectedTab != CloudTab.HOME && !recordOverlayActive) {
+        if (selectedTab == CloudTab.REGISTER) {
+            formSessionKey += 1
+        }
+        selectedTab = CloudTab.HOME
+    }
     Scaffold(
         containerColor = GrayBackground,
         bottomBar = {
-            if (!keyboardVisible && !rectificationActive) {
+            if (!keyboardVisible && !recordOverlayActive) {
                 NavigationBar(containerColor = Color.White) {
                     CloudTab.entries.forEach { tab ->
                         NavigationBarItem(
@@ -522,7 +532,7 @@ private fun CloudShell(
                 CloudTab.RECORDS -> CloudRecordsScreen(
                     viewModel = viewModel,
                     initialStatus = recordsInitialStatus,
-                    onRectificationVisibilityChanged = { rectificationActive = it }
+                    onOverlayVisibilityChanged = { recordOverlayActive = it }
                 )
                 CloudTab.PROFILE -> CloudProfileScreen(
                     viewModel = viewModel,
@@ -777,7 +787,7 @@ private fun MiniStat(value: String, label: String, modifier: Modifier, color: Co
 private fun CloudRecordsScreen(
     viewModel: InspectionViewModel,
     initialStatus: String,
-    onRectificationVisibilityChanged: (Boolean) -> Unit
+    onOverlayVisibilityChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val settings by viewModel.cloudSettings.collectAsState()
@@ -811,7 +821,7 @@ private fun CloudRecordsScreen(
                 onSuccess = {
                     rectificationDetail = null
                     detailRecordId = null
-                    onRectificationVisibilityChanged(false)
+                    onOverlayVisibilityChanged(false)
                     Toast.makeText(context, "整改已提交，记录已闭环", Toast.LENGTH_SHORT).show()
                 },
                 onFailure = { error ->
@@ -884,6 +894,7 @@ private fun CloudRecordsScreen(
             items(filtered, key = { it.id }) { record ->
                 CloudRecordCard(record) {
                     detailRecordId = record.id
+                    onOverlayVisibilityChanged(true)
                     viewModel.loadCloudRecordDetail(record.id)
                 }
             }
@@ -900,19 +911,25 @@ private fun CloudRecordsScreen(
         }
     }
 
-    if (detailRecordId != null) {
-        CloudRecordDetailDialog(
+    AnimatedVisibility(
+        visible = detailRecordId != null,
+        modifier = Modifier.fillMaxSize(),
+        enter = fadeIn(animationSpec = tween(120)) +
+            scaleIn(initialScale = 0.98f, animationSpec = tween(150)),
+        exit = fadeOut(animationSpec = tween(90)) +
+            scaleOut(targetScale = 0.99f, animationSpec = tween(90))
+    ) {
+        CloudRecordDetailOverlay(
             detail = detail,
             loading = detailLoading,
             onDismiss = {
                 detailRecordId = null
+                onOverlayVisibilityChanged(false)
                 viewModel.clearCloudRecordDetail()
             },
             onRectify = { record ->
                 detailRecordId = null
-                viewModel.clearCloudRecordDetail()
                 rectificationDetail = record
-                onRectificationVisibilityChanged(true)
             }
         )
     }
@@ -930,7 +947,7 @@ private fun CloudRecordsScreen(
                 submitting = rectificationSubmitting,
                 onDismiss = {
                     rectificationDetail = null
-                    onRectificationVisibilityChanged(false)
+                    detailRecordId = record.id
                 },
                 onSubmit = viewModel::rectifyCloudRecord
             )
@@ -1004,88 +1021,152 @@ private fun CloudRecordCard(record: CloudRecordSummary, onClick: (() -> Unit)? =
 }
 
 @Composable
-private fun CloudRecordDetailDialog(
+private fun CloudRecordDetailOverlay(
     detail: CloudRecordDetail?,
     loading: Boolean,
     onDismiss: () -> Unit,
     onRectify: (CloudRecordDetail) -> Unit
 ) {
     var previewPhoto by remember(detail?.id) { mutableStateOf<CloudRecordPhoto?>(null) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(detail?.customerName ?: "记录详情") },
-        text = {
-            if (loading || detail == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(160.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = BrandGreen)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 520.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    item { DetailLine("电话", detail.customerPhone) }
-                    item { DetailLine("用户类型", detail.customerType) }
-                    item { DetailLine("地址", detail.customerAddress) }
-                    item { DetailLine("检查日期", detail.inspectionDate) }
-                    item { DetailLine("检查人", detail.inspectorName) }
-                    item { DetailLine("配送员", detail.deliveryPerson) }
-                    item { DetailLine("检查结果", detail.checkResult) }
-                    if (detail.hazards.isNotEmpty()) {
-                        item { DetailLine("隐患项目", detail.hazards.joinToString("；") { it.name }) }
-                    }
-                    if (detail.gasSourceIssues.isNotEmpty()) {
-                        item { DetailLine("气源排查", detail.gasSourceIssues.joinToString("；")) }
-                    }
-                    if (detail.rectificationDate.isNotBlank()) {
-                        item { DetailLine("整改日期", detail.rectificationDate) }
-                    }
-                    if (detail.rectificationPerson.isNotBlank()) {
-                        item { DetailLine("整改人", detail.rectificationPerson) }
-                    }
-                    if (detail.rectificationNote.isNotBlank()) {
-                        item { DetailLine("整改情况", detail.rectificationNote) }
-                    }
-                    item { DetailLine("照片", "${detail.photos.size} 张") }
-                    cloudPhotoGroups(detail).forEach { group ->
-                        item {
-                            CloudPhotoGroup(
-                                title = group.title,
-                                photos = group.photos,
-                                onPreview = { previewPhoto = it }
-                            )
+    BackHandler(onBack = onDismiss)
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(onClick = {}),
+        color = Color.Black.copy(alpha = 0.42f)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .fillMaxHeight(0.82f),
+                color = Color.White,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 64.dp)
+                            .padding(start = 20.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            detail?.customerName ?: "记录详情",
+                            color = InkPrimary,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭详情", tint = InkPrimary)
                         }
                     }
-                    if (detail.remark.isNotBlank()) item { DetailLine("备注", detail.remark) }
+                    HorizontalDivider(color = GraySeparator)
+                    if (loading || detail == null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = BrandGreen)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                horizontal = 20.dp,
+                                vertical = 14.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            item { DetailLine("电话", detail.customerPhone) }
+                            item { DetailLine("用户类型", detail.customerType) }
+                            item { DetailLine("地址", detail.customerAddress) }
+                            item { DetailLine("检查日期", detail.inspectionDate) }
+                            item { DetailLine("检查人", detail.inspectorName) }
+                            item { DetailLine("配送员", detail.deliveryPerson) }
+                            item { DetailLine("检查结果", detail.checkResult) }
+                            if (detail.hazards.isNotEmpty()) {
+                                item { DetailLine("隐患项目", detail.hazards.joinToString("；") { it.name }) }
+                            }
+                            if (detail.gasSourceIssues.isNotEmpty()) {
+                                item { DetailLine("气源排查", detail.gasSourceIssues.joinToString("；")) }
+                            }
+                            if (detail.rectificationDate.isNotBlank()) {
+                                item { DetailLine("整改日期", detail.rectificationDate) }
+                            }
+                            if (detail.rectificationPerson.isNotBlank()) {
+                                item { DetailLine("整改人", detail.rectificationPerson) }
+                            }
+                            if (detail.rectificationNote.isNotBlank()) {
+                                item { DetailLine("整改情况", detail.rectificationNote) }
+                            }
+                            item { DetailLine("照片", "${detail.photos.size} 张") }
+                            cloudPhotoGroups(detail).forEach { group ->
+                                item {
+                                    CloudPhotoGroup(
+                                        title = group.title,
+                                        photos = group.photos,
+                                        onPreview = { previewPhoto = it }
+                                    )
+                                }
+                            }
+                            if (detail.remark.isNotBlank()) item { DetailLine("备注", detail.remark) }
+                        }
+                    }
+                    HorizontalDivider(color = GraySeparator)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (detail?.status == "pending") {
+                            OutlinedButton(
+                                onClick = onDismiss,
+                                modifier = Modifier
+                                    .weight(0.42f)
+                                    .height(50.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, GraySeparator)
+                            ) {
+                                Text("关闭", color = InkSecondary)
+                            }
+                            Button(
+                                onClick = { onRectify(detail) },
+                                modifier = Modifier
+                                    .weight(0.58f)
+                                    .height(50.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                            ) {
+                                Text("开始整改")
+                            }
+                        } else {
+                            Button(
+                                onClick = onDismiss,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                            ) {
+                                Text("关闭")
+                            }
+                        }
+                    }
                 }
             }
-        },
-        confirmButton = {
-            if (detail?.status == "pending") {
-                Button(
-                    onClick = { onRectify(detail) },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
-                ) {
-                    Text("开始整改")
-                }
-            } else {
-                TextButton(onClick = onDismiss) { Text("关闭", color = BrandGreenStrong) }
-            }
-        },
-        dismissButton = {
-            if (detail?.status == "pending") {
-                TextButton(onClick = onDismiss) { Text("关闭", color = InkSecondary) }
-            }
-        },
-        shape = RoundedCornerShape(8.dp),
-        containerColor = Color.White
-    )
+        }
+    }
 
     previewPhoto?.let { photo ->
         CloudPhotoPreviewDialog(

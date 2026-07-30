@@ -190,7 +190,6 @@ internal fun CloudRectificationDialog(
     BackHandler(enabled = !submitting, onBack = ::dismissAndClean)
     Surface(modifier = Modifier.fillMaxSize(), color = GrayBackground) {
         Scaffold(
-            modifier = Modifier.safeDrawingPadding(),
             containerColor = GrayBackground,
             topBar = {
                 Surface(color = Color.White, border = BorderStroke(0.5.dp, GraySeparator)) {
