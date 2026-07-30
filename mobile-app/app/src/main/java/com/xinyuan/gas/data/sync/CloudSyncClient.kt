@@ -86,6 +86,9 @@ data class CloudRecordDetail(
     val deliveryPerson: String,
     val remark: String,
     val locationAddress: String,
+    val rectificationDate: String,
+    val rectificationNote: String,
+    val rectificationPerson: String,
     val hazards: List<CloudRecordHazard>,
     val gasSourceIssues: List<String>,
     val photos: List<CloudRecordPhoto>
@@ -146,6 +149,13 @@ interface CloudSyncClient {
     suspend fun fetchCurrentSession(): Result<CloudLoginSession>
     suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>>
     suspend fun fetchTerminalRecord(id: Long): Result<CloudRecordDetail>
+    suspend fun rectifyTerminalRecord(
+        id: Long,
+        rectificationDate: String,
+        rectificationNote: String,
+        rectificationPerson: String,
+        photoUris: List<String>
+    ): Result<Unit>
     suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit>
     suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult>
 }
@@ -232,10 +242,37 @@ class HttpCloudSyncClient(
             deliveryPerson = record.optString("delivery_person"),
             remark = record.optString("remark"),
             locationAddress = record.optString("location_address"),
+            rectificationDate = record.optString("rectification_date"),
+            rectificationNote = record.optString("rectification_note"),
+            rectificationPerson = record.optString("rectification_person"),
             hazards = recordHazards(record.optJSONArray("hazards")),
             gasSourceIssues = stringValues(record.optJSONArray("gasSourceIssues"), "issue_text"),
             photos = recordPhotos(record.optJSONArray("photos"))
         )
+    }
+
+    override suspend fun rectifyTerminalRecord(
+        id: Long,
+        rectificationDate: String,
+        rectificationNote: String,
+        rectificationPerson: String,
+        photoUris: List<String>
+    ): Result<Unit> = runCatching {
+        val ownerUuid = "rectification-$id"
+        val remotePhotos = photoUris.map { photoUri ->
+            uploadPhotoReference(photoUri, ownerUuid)
+                ?: throw IllegalStateException("整改照片读取失败，请删除后重新拍摄")
+        }
+        postJson(
+            "/records/$id/rectify",
+            JSONObject().apply {
+                put("rectificationDate", rectificationDate)
+                put("rectificationNote", rectificationNote.trim())
+                put("rectificationPerson", rectificationPerson.trim())
+                put("photos", JSONArray(remotePhotos))
+            }
+        )
+        Unit
     }
 
     override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = runCatching {
@@ -533,6 +570,14 @@ class NotConfiguredCloudSyncClient : CloudSyncClient {
     override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = notConfigured()
 
     override suspend fun fetchTerminalRecord(id: Long): Result<CloudRecordDetail> = notConfigured()
+
+    override suspend fun rectifyTerminalRecord(
+        id: Long,
+        rectificationDate: String,
+        rectificationNote: String,
+        rectificationPerson: String,
+        photoUris: List<String>
+    ): Result<Unit> = notConfigured()
 
     override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = notConfigured()
 

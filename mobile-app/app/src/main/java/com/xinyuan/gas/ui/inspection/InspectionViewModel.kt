@@ -104,6 +104,12 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
     private val _cloudSubmitInProgress = MutableStateFlow(false)
     val cloudSubmitInProgress: StateFlow<Boolean> = _cloudSubmitInProgress.asStateFlow()
 
+    private val _cloudRectificationInProgress = MutableStateFlow(false)
+    val cloudRectificationInProgress: StateFlow<Boolean> = _cloudRectificationInProgress.asStateFlow()
+
+    private val _cloudRectificationResult = MutableSharedFlow<Result<Long>>()
+    val cloudRectificationResult: SharedFlow<Result<Long>> = _cloudRectificationResult.asSharedFlow()
+
     private val _legacyMigrationRunning = MutableStateFlow(false)
     val legacyMigrationRunning: StateFlow<Boolean> = _legacyMigrationRunning.asStateFlow()
 
@@ -498,6 +504,52 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun clearCloudRecordDetail() {
         _cloudRecordDetail.value = null
+    }
+
+    fun rectifyCloudRecord(
+        recordId: Long,
+        rectificationDate: String,
+        rectificationNote: String,
+        rectificationPerson: String,
+        photoUris: List<String>
+    ) {
+        viewModelScope.launch {
+            if (_cloudRectificationInProgress.value) return@launch
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn) {
+                _cloudRectificationResult.emit(Result.failure(IllegalStateException("请先登录 APP 账号")))
+                return@launch
+            }
+            if (!isNetworkAvailable()) {
+                _cloudRectificationResult.emit(Result.failure(IllegalStateException("当前网络不可用，整改尚未提交")))
+                return@launch
+            }
+
+            _cloudRectificationInProgress.value = true
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).rectifyTerminalRecord(
+                    id = recordId,
+                    rectificationDate = rectificationDate,
+                    rectificationNote = rectificationNote,
+                    rectificationPerson = rectificationPerson,
+                    photoUris = photoUris
+                )
+            }
+            result.fold(
+                onSuccess = {
+                    markCloudRequestSuccess()
+                    photoUris.forEach { PhotoUtil.deletePhoto(getApplication(), it) }
+                    _cloudRecordDetail.value = null
+                    refreshCloudRecords()
+                    _cloudRectificationResult.emit(Result.success(recordId))
+                },
+                onFailure = { error ->
+                    markCloudRequestFailure(error)
+                    _cloudRectificationResult.emit(Result.failure(error))
+                }
+            )
+            _cloudRectificationInProgress.value = false
+        }
     }
 
     fun changeCloudPassword(currentPassword: String, newPassword: String) {

@@ -2,6 +2,10 @@ package com.xinyuan.gas.ui.cloud
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,6 +49,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -458,17 +463,22 @@ private fun CloudShell(
     onShowMigration: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(CloudTab.HOME) }
+    var recordsInitialStatus by rememberSaveable { mutableStateOf("") }
     var formSessionKey by rememberSaveable { mutableStateOf(0) }
+    var rectificationActive by rememberSaveable { mutableStateOf(false) }
     val keyboardVisible = WindowInsets.isImeVisible
     Scaffold(
         containerColor = GrayBackground,
         bottomBar = {
-            if (!keyboardVisible) {
+            if (!keyboardVisible && !rectificationActive) {
                 NavigationBar(containerColor = Color.White) {
                     CloudTab.entries.forEach { tab ->
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            onClick = {
+                                if (tab == CloudTab.RECORDS) recordsInitialStatus = ""
+                                selectedTab = tab
+                            },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                             label = { Text(tab.label) },
                             colors = NavigationBarItemDefaults.colors(
@@ -496,10 +506,24 @@ private fun CloudShell(
                 )
         ) {
             when (selectedTab) {
-                CloudTab.HOME -> CloudHomeScreen(viewModel, settings, { selectedTab = CloudTab.REGISTER }) {
-                    selectedTab = CloudTab.RECORDS
-                }
-                CloudTab.RECORDS -> CloudRecordsScreen(viewModel)
+                CloudTab.HOME -> CloudHomeScreen(
+                    viewModel = viewModel,
+                    settings = settings,
+                    onNewRecord = { selectedTab = CloudTab.REGISTER },
+                    onOpenRecords = {
+                        recordsInitialStatus = ""
+                        selectedTab = CloudTab.RECORDS
+                    },
+                    onOpenPending = {
+                        recordsInitialStatus = "pending"
+                        selectedTab = CloudTab.RECORDS
+                    }
+                )
+                CloudTab.RECORDS -> CloudRecordsScreen(
+                    viewModel = viewModel,
+                    initialStatus = recordsInitialStatus,
+                    onRectificationVisibilityChanged = { rectificationActive = it }
+                )
                 CloudTab.PROFILE -> CloudProfileScreen(
                     viewModel = viewModel,
                     settings = settings,
@@ -537,7 +561,8 @@ private fun CloudHomeScreen(
     viewModel: InspectionViewModel,
     settings: CloudSettings,
     onNewRecord: () -> Unit,
-    onOpenRecords: () -> Unit
+    onOpenRecords: () -> Unit,
+    onOpenPending: () -> Unit
 ) {
     val records by viewModel.cloudRecords.collectAsState()
     val loading by viewModel.cloudRecordsLoading.collectAsState()
@@ -675,6 +700,38 @@ private fun CloudHomeScreen(
                 MiniStat(records.size.toString(), "我的记录", Modifier.weight(1f))
             }
         }
+        if (pendingCount > 0) {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenPending),
+                    color = OrangeSoft,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, OrangeSoft)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 15.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = OrangeAccent)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 11.dp)
+                        ) {
+                            Text("处理待整改记录", color = InkPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "当前 $pendingCount 条，完成整改后自动形成闭环",
+                                color = InkSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = OrangeAccent)
+                    }
+                }
+            }
+        }
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -717,12 +774,20 @@ private fun MiniStat(value: String, label: String, modifier: Modifier, color: Co
 }
 
 @Composable
-private fun CloudRecordsScreen(viewModel: InspectionViewModel) {
+private fun CloudRecordsScreen(
+    viewModel: InspectionViewModel,
+    initialStatus: String,
+    onRectificationVisibilityChanged: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val settings by viewModel.cloudSettings.collectAsState()
     val records by viewModel.cloudRecords.collectAsState()
     val loading by viewModel.cloudRecordsLoading.collectAsState()
+    val rectificationSubmitting by viewModel.cloudRectificationInProgress.collectAsState()
     var keyword by rememberSaveable { mutableStateOf("") }
-    var status by rememberSaveable { mutableStateOf("") }
+    var status by rememberSaveable { mutableStateOf(initialStatus) }
     var detailRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var rectificationDetail by remember { mutableStateOf<CloudRecordDetail?>(null) }
     val detail by viewModel.cloudRecordDetail.collectAsState()
     val detailLoading by viewModel.cloudRecordDetailLoading.collectAsState()
     val filtered = records.filter { record ->
@@ -739,6 +804,26 @@ private fun CloudRecordsScreen(viewModel: InspectionViewModel) {
     }
 
     LaunchedEffect(Unit) { viewModel.refreshCloudRecords() }
+    LaunchedEffect(initialStatus) { status = initialStatus }
+    LaunchedEffect(Unit) {
+        viewModel.cloudRectificationResult.collectLatest { result ->
+            result.fold(
+                onSuccess = {
+                    rectificationDetail = null
+                    detailRecordId = null
+                    onRectificationVisibilityChanged(false)
+                    Toast.makeText(context, "整改已提交，记录已闭环", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(
+                        context,
+                        "整改提交失败：${error.message ?: "未知错误"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            )
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -822,8 +907,34 @@ private fun CloudRecordsScreen(viewModel: InspectionViewModel) {
             onDismiss = {
                 detailRecordId = null
                 viewModel.clearCloudRecordDetail()
+            },
+            onRectify = { record ->
+                detailRecordId = null
+                viewModel.clearCloudRecordDetail()
+                rectificationDetail = record
+                onRectificationVisibilityChanged(true)
             }
         )
+    }
+
+    AnimatedVisibility(
+        visible = rectificationDetail != null,
+        modifier = Modifier.fillMaxSize(),
+        enter = fadeIn(animationSpec = tween(durationMillis = 140)),
+        exit = fadeOut(animationSpec = tween(durationMillis = 90))
+    ) {
+        rectificationDetail?.let { record ->
+            CloudRectificationDialog(
+                detail = record,
+                defaultPerson = settings.userName,
+                submitting = rectificationSubmitting,
+                onDismiss = {
+                    rectificationDetail = null
+                    onRectificationVisibilityChanged(false)
+                },
+                onSubmit = viewModel::rectifyCloudRecord
+            )
+        }
     }
 }
 
@@ -896,7 +1007,8 @@ private fun CloudRecordCard(record: CloudRecordSummary, onClick: (() -> Unit)? =
 private fun CloudRecordDetailDialog(
     detail: CloudRecordDetail?,
     loading: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onRectify: (CloudRecordDetail) -> Unit
 ) {
     var previewPhoto by remember(detail?.id) { mutableStateOf<CloudRecordPhoto?>(null) }
     AlertDialog(
@@ -930,6 +1042,15 @@ private fun CloudRecordDetailDialog(
                     if (detail.gasSourceIssues.isNotEmpty()) {
                         item { DetailLine("气源排查", detail.gasSourceIssues.joinToString("；")) }
                     }
+                    if (detail.rectificationDate.isNotBlank()) {
+                        item { DetailLine("整改日期", detail.rectificationDate) }
+                    }
+                    if (detail.rectificationPerson.isNotBlank()) {
+                        item { DetailLine("整改人", detail.rectificationPerson) }
+                    }
+                    if (detail.rectificationNote.isNotBlank()) {
+                        item { DetailLine("整改情况", detail.rectificationNote) }
+                    }
                     item { DetailLine("照片", "${detail.photos.size} 张") }
                     cloudPhotoGroups(detail).forEach { group ->
                         item {
@@ -945,7 +1066,22 @@ private fun CloudRecordDetailDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭", color = BrandGreenStrong) }
+            if (detail?.status == "pending") {
+                Button(
+                    onClick = { onRectify(detail) },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
+                ) {
+                    Text("开始整改")
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text("关闭", color = BrandGreenStrong) }
+            }
+        },
+        dismissButton = {
+            if (detail?.status == "pending") {
+                TextButton(onClick = onDismiss) { Text("关闭", color = InkSecondary) }
+            }
         },
         shape = RoundedCornerShape(8.dp),
         containerColor = Color.White
