@@ -28,8 +28,10 @@ ssh/
 ssh_known_hosts
 
 # Android build output
+/.gradle-codex/
 mobile-app/.gradle/
 mobile-app/.kotlin/
+mobile-app/android-user-home/
 mobile-app/**/build/
 mobile-app/**/captures/
 mobile-app/**/*.apk
@@ -53,4 +55,3 @@ storage/
 __pycache__/
 *.pyc
 node_modules/
-

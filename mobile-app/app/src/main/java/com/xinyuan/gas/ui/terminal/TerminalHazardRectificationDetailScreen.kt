@@ -41,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +69,7 @@ import com.xinyuan.gas.ui.theme.OrangeAccent
 import com.xinyuan.gas.ui.theme.RedDanger
 import com.xinyuan.gas.util.PhotoUtil
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -79,6 +81,7 @@ fun TerminalHazardRectificationDetailScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val recordFlow = remember(recordId) { viewModel.getTerminalById(recordId) }
     val record by recordFlow.collectAsState(initial = null)
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
@@ -104,17 +107,19 @@ fun TerminalHazardRectificationDetailScreen(
         val uri = currentPhotoUri
         val current = record
         if (success && uri != null && current != null) {
-            val locationText = PhotoUtil.getLocationWatermark(context)
-            PhotoUtil.addWatermark(
-                context = context,
-                photoUri = uri,
-                address = current.customerAddress,
-                inspector = current.inspectorName,
-                customerName = current.customerName,
-                customerPhone = current.customerPhone,
-                locationText = locationText
-            )
-            rectificationPhotos = rectificationPhotos + uri.toString()
+            coroutineScope.launch {
+                val locationText = PhotoUtil.getLocationWatermark(context)
+                PhotoUtil.addWatermark(
+                    context = context,
+                    photoUri = uri,
+                    address = current.customerAddress,
+                    inspector = current.inspectorName,
+                    customerName = current.customerName,
+                    customerPhone = current.customerPhone,
+                    locationText = locationText
+                )
+                rectificationPhotos = rectificationPhotos + uri.toString()
+            }
         } else {
             uri?.let { PhotoUtil.deletePhoto(context, it.toString()) }
         }

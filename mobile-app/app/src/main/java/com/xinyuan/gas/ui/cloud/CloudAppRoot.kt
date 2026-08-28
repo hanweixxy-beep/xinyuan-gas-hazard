@@ -1392,7 +1392,7 @@ private fun CloudProfileScreen(
     val dataScope = when (settings.role) {
         "hq_admin" -> "全部公司数据"
         "company_admin" -> "本公司数据"
-        else -> "仅本人录入"
+        else -> if (settings.canViewCompanyRecords) "本公司数据" else "仅本人录入"
     }
 
     LazyColumn(

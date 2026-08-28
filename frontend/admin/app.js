@@ -7,6 +7,7 @@ const state = {
   currentRecord: null,
   companies: [],
   users: [],
+  accessUserId: 0,
   currentModule: 'home',
   recordPage: 1,
   recordPageSize: 50
@@ -142,6 +143,12 @@ function userStatusText(status) {
   return status === 'active' ? '启用' : '停用';
 }
 
+function dataScopeLabel(user) {
+  if (user.role === 'hq_admin') return '全部公司';
+  if (user.role === 'company_admin') return '本公司';
+  return Number(user.can_view_company_records) === 1 ? '本公司' : '仅本人录入';
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (!(options.body instanceof FormData)) {
@@ -189,6 +196,7 @@ function logout() {
   $('#loginPanel').classList.remove('hidden');
   closeModal();
   closePasswordModal();
+  closeAccessModal();
 }
 
 function restore() {
@@ -474,10 +482,14 @@ function renderLoginScopeOptions() {
   const role = $('#userRoleSelect').value;
   const scopes = role === 'inspector'
     ? ['both', 'app', 'admin']
-    : ['admin'];
+    : ['both', 'admin'];
   $('#userLoginScopeSelect').innerHTML = scopes
     .map((scope) => `<option value="${scope}">${loginScopeLabel(scope)}</option>`)
     .join('');
+  $('#userCompanyDataField').classList.toggle('hidden', role !== 'inspector');
+  if (role !== 'inspector') {
+    $('#userCompanyDataField input').checked = false;
+  }
 }
 
 function renderCompanyRows() {
@@ -507,17 +519,19 @@ function renderUserRows() {
         <td>${escapeHtml(user.company_name || '-')}</td>
         <td>${roleLabel(user.role)}</td>
         <td>${loginScopeLabel(user.login_scope)}</td>
+        <td>${dataScopeLabel(user)}</td>
         <td><span class="status ${user.status === 'active' ? '' : 'disabled'}">${userStatusText(user.status)}</span></td>
         <td>${escapeHtml(user.last_login_at || '-')}</td>
         <td>
           <button type="button" class="link-button" data-action="user-status" data-id="${user.id}" data-status="${nextStatus}" ${disabled}>
             ${user.status === 'active' ? '停用' : '启用'}
           </button>
+          <button type="button" class="link-button" data-action="edit-access" data-id="${user.id}" ${disabled}>编辑权限</button>
           <button type="button" class="link-button" data-action="reset-password" data-id="${user.id}" ${disabled}>重置密码</button>
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="8">暂无用户</td></tr>';
+  }).join('') || '<tr><td colspan="9">暂无用户</td></tr>';
 }
 
 async function createCompany(event) {
@@ -553,6 +567,7 @@ async function createUser(event) {
         phone: String(form.get('phone') || '').trim(),
         role: String(form.get('role') || ''),
         loginScope: String(form.get('loginScope') || 'both'),
+        canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on',
         password: String(form.get('password') || '')
       })
     });
@@ -583,6 +598,51 @@ async function resetUserPassword(id, button = null) {
       body: JSON.stringify({ password })
     });
     showToast('密码已重置，该用户需要重新登录');
+    await loadAdminData();
+  });
+}
+
+function openAccessModal(id) {
+  const user = state.users.find((item) => Number(item.id) === Number(id));
+  if (!user || !canOperateUser(user)) return;
+  state.accessUserId = Number(user.id);
+  $('#accessModalTitle').textContent = `编辑权限 · ${user.name}`;
+  const scopes = user.role === 'inspector' ? ['both', 'app', 'admin'] : ['both', 'admin'];
+  $('#accessLoginScopeSelect').innerHTML = scopes
+    .map((scope) => `<option value="${scope}">${loginScopeLabel(scope)}</option>`)
+    .join('');
+  $('#accessLoginScopeSelect').value = user.login_scope || 'both';
+  $('#accessCompanyDataField').classList.toggle('hidden', user.role !== 'inspector');
+  $('#accessCompanyDataField input').checked = user.role === 'inspector' && Number(user.can_view_company_records) === 1;
+  $('#accessModal').classList.remove('hidden');
+  $('#accessModal').setAttribute('aria-hidden', 'false');
+}
+
+function closeAccessModal() {
+  const modal = $('#accessModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  state.accessUserId = 0;
+  $('#accessForm')?.reset();
+}
+
+async function submitUserAccess(event) {
+  event.preventDefault();
+  if (!state.accessUserId) return;
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const submitButton = formElement.querySelector('button[type="submit"]');
+  await runWithButton(submitButton, '保存中...', async () => {
+    await api(`/admin/users/${state.accessUserId}/access`, {
+      method: 'POST',
+      body: JSON.stringify({
+        loginScope: String(form.get('loginScope') || 'both'),
+        canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on'
+      })
+    });
+    closeAccessModal();
+    showToast('账号权限已更新，该用户需要重新登录');
     await loadAdminData();
   });
 }
@@ -1054,6 +1114,9 @@ $('#userRows').addEventListener('click', (event) => {
   if (button.dataset.action === 'reset-password') {
     resetUserPassword(button.dataset.id, button).catch((error) => showToast(error.message));
   }
+  if (button.dataset.action === 'edit-access') {
+    openAccessModal(button.dataset.id);
+  }
 });
 $('#filtersForm').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -1093,6 +1156,11 @@ $('#passwordModal').addEventListener('click', (event) => {
   if (event.target.dataset.passwordClose) closePasswordModal();
 });
 $('#passwordForm').addEventListener('submit', (event) => submitPasswordChange(event).catch((error) => showToast(error.message)));
+$('#closeAccessModalBtn').addEventListener('click', closeAccessModal);
+$('#accessModal').addEventListener('click', (event) => {
+  if (event.target.dataset.accessClose) closeAccessModal();
+});
+$('#accessForm').addEventListener('submit', (event) => submitUserAccess(event).catch((error) => showToast(error.message)));
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closePhotoPreview();
   if (event.key === 'Enter' && !$('#loginPanel').classList.contains('hidden') && event.target.matches('#loginPhone, #loginPassword')) {

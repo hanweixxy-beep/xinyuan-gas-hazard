@@ -1,33 +1,50 @@
 package com.xinyuan.gas.util
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.location.Address
 import android.location.Geocoder
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.coroutines.resume
 
 object PhotoUtil {
 
     private val fileNameFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA)
     private const val MAX_PHOTO_SIDE = 1600
     private const val JPEG_QUALITY = 72
+    private const val LOCATION_TIMEOUT_MILLIS = 15_000L
 
     data class LocationSnapshot(
         val address: String = "",
-        val watermarkText: String = ""
-    )
+        val watermarkText: String = "",
+        val latitude: Double? = null,
+        val longitude: Double? = null,
+        val accuracyMeters: Float? = null,
+        val capturedAt: Long = 0L
+    ) {
+        val isUsable: Boolean
+            get() = latitude != null && longitude != null && accuracyMeters != null && capturedAt > 0L
+    }
 
     fun createImageUri(context: Context): Uri {
         val photoDir = File(context.getExternalFilesDir(null), "photos").apply { mkdirs() }
@@ -126,24 +143,31 @@ object PhotoUtil {
         }
     }
 
-    fun getLocationWatermark(context: Context): String {
+    suspend fun getLocationWatermark(context: Context): String {
         return getLocationSnapshot(context).watermarkText
     }
 
-    fun getLocationAddress(context: Context): String {
+    suspend fun getLocationAddress(context: Context): String {
         return getLocationSnapshot(context).address
     }
 
-    fun getLocationSnapshot(context: Context): LocationSnapshot {
-        val bestLocation = getCurrentLocation(context) ?: return LocationSnapshot()
-        val address = reverseGeocode(context, bestLocation).orEmpty()
+    suspend fun getLocationSnapshot(context: Context): LocationSnapshot {
+        val bestLocation = getFreshLocation(context) ?: return LocationSnapshot()
+        val address = withContext(Dispatchers.IO) {
+            reverseGeocode(context, bestLocation).orEmpty()
+        }
         return LocationSnapshot(
             address = address,
-            watermarkText = bestLocation.toWatermarkText(address)
+            watermarkText = bestLocation.toWatermarkText(),
+            latitude = bestLocation.latitude,
+            longitude = bestLocation.longitude,
+            accuracyMeters = bestLocation.accuracy,
+            capturedAt = bestLocation.time.takeIf { it > 0L } ?: System.currentTimeMillis()
         )
     }
 
-    private fun getCurrentLocation(context: Context): Location? {
+    @SuppressLint("MissingPermission")
+    private suspend fun getFreshLocation(context: Context): Location? {
         if (
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
@@ -152,16 +176,59 @@ object PhotoUtil {
         }
 
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-        return providers.mapNotNull { provider ->
-            runCatching {
-                if (locationManager.isProviderEnabled(provider)) {
-                    locationManager.getLastKnownLocation(provider)
-                } else {
-                    null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { provider -> runCatching { locationManager.isProviderEnabled(provider) }.getOrDefault(false) }
+        if (providers.isEmpty()) return null
+
+        return suspendCancellableCoroutine { continuation ->
+            val handler = Handler(Looper.getMainLooper())
+            var bestLocation: Location? = null
+            var completed = false
+            lateinit var listener: LocationListener
+            lateinit var timeout: Runnable
+
+            fun finish(location: Location?) {
+                if (completed) return
+                completed = true
+                handler.removeCallbacks(timeout)
+                runCatching { locationManager.removeUpdates(listener) }
+                if (continuation.isActive) continuation.resume(location)
+            }
+
+            listener = LocationListener { location ->
+                val ageMillis = location.ageMillis()
+                val accuracy = location.accuracy.takeIf { location.hasAccuracy() } ?: Float.POSITIVE_INFINITY
+                if (!LocationQualityPolicy.isAcceptable(ageMillis, accuracy)) return@LocationListener
+
+                val current = bestLocation
+                if (current == null || accuracy < current.accuracy) {
+                    bestLocation = location
                 }
-            }.getOrNull()
-        }.maxByOrNull { it.time }
+                if (LocationQualityPolicy.isTargetAccuracy(ageMillis, accuracy)) {
+                    finish(location)
+                }
+            }
+
+            timeout = Runnable { finish(bestLocation) }
+            continuation.invokeOnCancellation {
+                handler.post {
+                    if (!completed) {
+                        completed = true
+                        handler.removeCallbacks(timeout)
+                        runCatching { locationManager.removeUpdates(listener) }
+                    }
+                }
+            }
+
+            handler.post {
+                providers.forEach { provider ->
+                    runCatching {
+                        locationManager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                    }
+                }
+                handler.postDelayed(timeout, LOCATION_TIMEOUT_MILLIS)
+            }
+        }
     }
 
     fun deletePhoto(context: Context, photoUri: String) {
@@ -233,7 +300,7 @@ object PhotoUtil {
         return result
     }
 
-    private fun Location.toWatermarkText(address: String): String {
+    private fun Location.toWatermarkText(): String {
         val accuracyText = if (hasAccuracy()) "，精度约${accuracy.toInt()}米" else ""
         val coordinateText = String.format(
             Locale.CHINA,
@@ -244,6 +311,9 @@ object PhotoUtil {
         )
         return coordinateText
     }
+
+    private fun Location.ageMillis(): Long =
+        ((SystemClock.elapsedRealtimeNanos() - elapsedRealtimeNanos) / 1_000_000L).coerceAtLeast(0L)
 
     @Suppress("DEPRECATION")
     private fun reverseGeocode(context: Context, location: Location): String? {

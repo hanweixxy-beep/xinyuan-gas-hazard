@@ -32,7 +32,8 @@ data class CloudSettings(
     val companyId: Long = 0L,
     val companyName: String = "",
     val role: String = "",
-    val loginScope: String = ""
+    val loginScope: String = "",
+    val canViewCompanyRecords: Boolean = false
 ) {
     val isLoggedIn: Boolean
         get() = token.isNotBlank()
@@ -47,7 +48,8 @@ data class CloudLoginSession(
     val companyId: Long,
     val companyName: String,
     val role: String,
-    val loginScope: String
+    val loginScope: String,
+    val canViewCompanyRecords: Boolean
 )
 
 data class CloudRecordSummary(
@@ -113,7 +115,8 @@ class CloudSessionStore(context: Context) {
         companyId = prefs.getLong("companyId", 0L),
         companyName = prefs.getString("companyName", "").orEmpty(),
         role = prefs.getString("role", "").orEmpty(),
-        loginScope = prefs.getString("loginScope", "").orEmpty()
+        loginScope = prefs.getString("loginScope", "").orEmpty(),
+        canViewCompanyRecords = prefs.getBoolean("canViewCompanyRecords", false)
     )
 
     fun save(session: CloudLoginSession): CloudSettings {
@@ -127,6 +130,7 @@ class CloudSessionStore(context: Context) {
             .putString("companyName", session.companyName)
             .putString("role", session.role)
             .putString("loginScope", session.loginScope)
+            .putBoolean("canViewCompanyRecords", session.canViewCompanyRecords)
             .apply()
         return load()
     }
@@ -201,7 +205,8 @@ class HttpCloudSyncClient(
             companyId = user.optLong("companyId"),
             companyName = user.optString("companyName"),
             role = user.optString("role"),
-            loginScope = user.optString("loginScope")
+            loginScope = user.optString("loginScope"),
+            canViewCompanyRecords = user.optBoolean("canViewCompanyRecords", false)
         )
     }
 
@@ -373,15 +378,46 @@ class HttpCloudSyncClient(
             put("rectificationDate", formatDateOrEmpty(record.rectificationDate))
             put("rectificationNote", record.rectificationNote)
             put("rectificationPerson", record.rectificationPerson)
-            put("photos", JSONObject().apply {
-                put("storefront", JSONArray(photos.storefront?.let(::listOf).orEmpty()))
-                put("hazard", JSONObject().apply {
-                    photos.hazard.forEach { (code, paths) -> put(code, JSONArray(paths)) }
+            if (
+                record.locationLatitude != null &&
+                record.locationLongitude != null &&
+                record.locationAccuracyMeters != null &&
+                record.locationCapturedAt > 0L
+            ) {
+                put("location", JSONObject().apply {
+                    put("lat", record.locationLatitude)
+                    put("lng", record.locationLongitude)
+                    put("address", record.customerAddress)
+                    put("accuracyMeters", record.locationAccuracyMeters)
+                    put("capturedAt", formatDateTime(record.locationCapturedAt))
                 })
-                put("cylinder_qr", JSONArray(photos.cylinderQr))
-                put("cylinder", JSONArray(photos.cylinder))
-                put("rectification", JSONArray(photos.rectification))
+            }
+            put("photos", JSONObject().apply {
+                put("storefront", JSONArray(photos.storefront?.let { listOf(photoPayload(it, record)) }.orEmpty()))
+                put("hazard", JSONObject().apply {
+                    photos.hazard.forEach { (code, paths) -> put(code, JSONArray(paths.map { photoPayload(it, record) })) }
+                })
+                put("cylinder_qr", JSONArray(photos.cylinderQr.map { photoPayload(it, record) }))
+                put("cylinder", JSONArray(photos.cylinder.map { photoPayload(it, record) }))
+                put("rectification", JSONArray(photos.rectification.map { photoPayload(it, record) }))
             })
+        }
+
+    private fun photoPayload(filePath: String, record: TerminalHazardRecord): JSONObject =
+        JSONObject().apply {
+            put("filePath", filePath)
+            if (
+                record.locationLatitude != null &&
+                record.locationLongitude != null &&
+                record.locationAccuracyMeters != null &&
+                record.locationCapturedAt > 0L
+            ) {
+                put("watermarkAddress", record.customerAddress)
+                put("latitude", record.locationLatitude)
+                put("longitude", record.locationLongitude)
+                put("accuracyMeters", record.locationAccuracyMeters)
+                put("capturedAt", formatDateTime(record.locationCapturedAt))
+            }
         }
 
     private fun postJson(endpoint: String, body: JSONObject): JSONObject {
@@ -492,6 +528,8 @@ class HttpCloudSyncClient(
 
     private fun formatDateOrEmpty(value: Long): String = if (value > 0L) dateFormat.format(Date(value)) else ""
 
+    private fun formatDateTime(value: Long): String = dateTimeFormat.format(Date(value))
+
     private fun guessMimeType(fileName: String): String {
         val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
@@ -516,6 +554,7 @@ class HttpCloudSyncClient(
         const val DEFAULT_BASE_URL = "https://www.gashbxy.com/api"
 
         private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+        private val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA)
 
         fun normalizeBaseUrl(value: String): String {
             val trimmed = value.trim().trimEnd('/')
@@ -552,7 +591,8 @@ class HttpCloudSyncClient(
                     companyId = user.optLong("companyId"),
                     companyName = user.optString("companyName"),
                     role = user.optString("role"),
-                    loginScope = user.optString("loginScope")
+                    loginScope = user.optString("loginScope"),
+                    canViewCompanyRecords = user.optBoolean("canViewCompanyRecords", false)
                 )
             }
     }

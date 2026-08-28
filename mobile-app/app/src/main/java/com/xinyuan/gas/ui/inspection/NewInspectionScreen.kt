@@ -32,6 +32,7 @@ import com.xinyuan.gas.ui.components.*
 import com.xinyuan.gas.ui.theme.*
 import com.xinyuan.gas.util.PhotoUtil
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -43,6 +44,7 @@ fun NewInspectionScreen(
     editRecordId: Long = 0L
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
     val prefs = remember { context.getSharedPreferences("gas_prefs", android.content.Context.MODE_PRIVATE) }
 
@@ -153,12 +155,15 @@ fun NewInspectionScreen(
     var currentPhotoUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success && currentPhotoUri != null) {
-            val locationSnapshot = PhotoUtil.getLocationSnapshot(context)
-            if (customerAddress.isBlank()) {
-                if (locationSnapshot.address.isNotBlank()) customerAddress = locationSnapshot.address
+            val uri = currentPhotoUri!!
+            coroutineScope.launch {
+                val locationSnapshot = PhotoUtil.getLocationSnapshot(context)
+                if (customerAddress.isBlank() && locationSnapshot.address.isNotBlank()) {
+                    customerAddress = locationSnapshot.address
+                }
+                PhotoUtil.addWatermark(context, uri, customerAddress, inspectorName, customerName, customerPhone, locationSnapshot.watermarkText)
+                photoUris = photoUris + uri.toString()
             }
-            PhotoUtil.addWatermark(context, currentPhotoUri!!, customerAddress, inspectorName, customerName, customerPhone, locationSnapshot.watermarkText)
-            photoUris = photoUris + currentPhotoUri.toString()
         } else {
             currentPhotoUri?.let { PhotoUtil.deletePhoto(context, it.toString()) }
         }

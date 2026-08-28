@@ -68,7 +68,7 @@ final class UserRepository
     {
         if ($actor['role'] === 'hq_admin') {
             $stmt = $this->pdo->query(
-                "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.status, u.last_login_at, u.created_at, u.updated_at
+                "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
                  FROM users u
                  LEFT JOIN companies c ON c.id = u.company_id
                  ORDER BY u.id ASC"
@@ -77,7 +77,7 @@ final class UserRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.status, u.last_login_at, u.created_at, u.updated_at
+            "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
              FROM users u
              LEFT JOIN companies c ON c.id = u.company_id
              WHERE u.company_id = :company_id
@@ -121,8 +121,8 @@ final class UserRepository
     public function createUser(array $user): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO users (company_id, name, phone, password_hash, role, login_scope, status)
-             VALUES (:company_id, :name, :phone, :password_hash, :role, :login_scope, 'active')"
+            "INSERT INTO users (company_id, name, phone, password_hash, role, login_scope, can_view_company_records, status)
+             VALUES (:company_id, :name, :phone, :password_hash, :role, :login_scope, :can_view_company_records, 'active')"
         );
         $stmt->execute([
             'company_id' => $user['company_id'],
@@ -131,6 +131,7 @@ final class UserRepository
             'password_hash' => $user['password_hash'],
             'role' => $user['role'],
             'login_scope' => $user['login_scope'],
+            'can_view_company_records' => (int) ($user['can_view_company_records'] ?? 0),
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -145,6 +146,20 @@ final class UserRepository
     {
         $stmt = $this->pdo->prepare('UPDATE users SET password_hash = :password_hash WHERE id = :id');
         $stmt->execute(['id' => $id, 'password_hash' => $passwordHash]);
+    }
+
+    public function updateAccess(int $id, string $loginScope, bool $canViewCompanyRecords): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE users
+             SET login_scope = :login_scope, can_view_company_records = :can_view_company_records
+             WHERE id = :id'
+        );
+        $stmt->execute([
+            'id' => $id,
+            'login_scope' => $loginScope,
+            'can_view_company_records' => $canViewCompanyRecords ? 1 : 0,
+        ]);
     }
 
     public function deleteSessionsForUser(int $id): void

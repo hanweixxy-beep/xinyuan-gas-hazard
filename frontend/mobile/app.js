@@ -501,7 +501,9 @@ function updateAccountSurface() {
   $('#profileCompany').textContent = company;
   $('#profilePhone').textContent = state.user.phone || '-';
   $('#profileRole').textContent = roleLabel(state.user.role);
-  $('#profileScope').textContent = state.user.role === 'inspector' ? '仅查看本人录入' : '按账号权限查看';
+  $('#profileScope').textContent = state.user.role === 'hq_admin'
+    ? '全部公司数据'
+    : (state.user.role === 'company_admin' || state.user.canViewCompanyRecords ? '本公司数据' : '仅查看本人录入');
 }
 
 function updateBottomNav() {
@@ -954,6 +956,10 @@ async function locate(auto = false) {
       lat: Number(position.coords.latitude.toFixed(7)),
       lng: Number(position.coords.longitude.toFixed(7)),
       accuracy: Math.round(position.coords.accuracy || 0),
+      capturedAt: (() => {
+        const captured = formatCapturedAt(new Date());
+        return `${captured.date} ${captured.time}`;
+      })(),
       address: '',
       source: 'storefront'
     };
@@ -1092,7 +1098,15 @@ async function uploadStoredPhotos(field) {
     if (!photo.remotePath) {
       photo.remotePath = await uploadPhotoBlob(photo);
     }
-    uploaded.push(photo.remotePath);
+    const location = photo.location || state.location;
+    uploaded.push(location ? {
+      filePath: photo.remotePath,
+      watermarkAddress: location.address || currentAddress(),
+      latitude: location.lat,
+      longitude: location.lng,
+      accuracyMeters: location.accuracy,
+      capturedAt: photo.capturedAt || location.capturedAt || null
+    } : photo.remotePath);
   }
   return uploaded.filter(Boolean);
 }
@@ -1147,7 +1161,7 @@ async function buildPhotoItem(file, field) {
     blob,
     previewUrl: URL.createObjectURL(blob),
     name: `${field}-${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`,
-    capturedAt: capturedAt.toLocaleString(),
+    capturedAt: `${formatCapturedAt(capturedAt).date} ${formatCapturedAt(capturedAt).time}`,
     location: state.location ? { ...state.location } : null
   };
 }

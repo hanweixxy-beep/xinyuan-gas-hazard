@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Core\HttpException;
 use App\Domain\HazardCatalog;
+use App\Domain\UserAccess;
 use PDO;
 
 final class RecordRepository
@@ -83,11 +84,13 @@ final class RecordRepository
                 "INSERT INTO inspection_records
                  (client_uuid, company_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
                   inspector_name, delivery_person, inspection_date, check_result, status, remark,
-                  location_lat, location_lng, location_address, rectification_date, rectification_note, rectification_person)
+                  location_lat, location_lng, location_address, location_accuracy_meters, location_captured_at,
+                  rectification_date, rectification_note, rectification_person)
                  VALUES
                  (:client_uuid, :company_id, :creator_id, 'submitted', :customer_name, :customer_phone, :customer_type, :customer_address,
                   :inspector_name, :delivery_person, :inspection_date, :check_result, :status, :remark,
-                  :location_lat, :location_lng, :location_address, :rectification_date, :rectification_note, :rectification_person)"
+                  :location_lat, :location_lng, :location_address, :location_accuracy_meters, :location_captured_at,
+                  :rectification_date, :rectification_note, :rectification_person)"
             );
             $stmt->execute([
                 'client_uuid' => $clientUuid,
@@ -106,6 +109,8 @@ final class RecordRepository
                 'location_lat' => $payload['location']['lat'] ?? null,
                 'location_lng' => $payload['location']['lng'] ?? null,
                 'location_address' => $payload['location']['address'] ?? $payload['customerAddress'],
+                'location_accuracy_meters' => $payload['location']['accuracyMeters'] ?? $payload['location']['accuracy'] ?? null,
+                'location_captured_at' => $payload['location']['capturedAt'] ?? null,
                 'rectification_date' => $this->normalizeDate($payload['rectificationDate'] ?? null),
                 'rectification_note' => $payload['rectificationNote'] ?? '',
                 'rectification_person' => $payload['rectificationPerson'] ?? '',
@@ -176,6 +181,8 @@ final class RecordRepository
                 'location_lat' => $payload['location']['lat'] ?? null,
                 'location_lng' => $payload['location']['lng'] ?? null,
                 'location_address' => $payload['location']['address'] ?? $payload['customerAddress'],
+                'location_accuracy_meters' => $payload['location']['accuracyMeters'] ?? $payload['location']['accuracy'] ?? null,
+                'location_captured_at' => $payload['location']['capturedAt'] ?? null,
                 'rectification_date' => $this->normalizeDate($payload['rectificationDate'] ?? null),
                 'rectification_note' => $payload['rectificationNote'] ?? '',
                 'rectification_person' => $payload['rectificationPerson'] ?? '',
@@ -200,6 +207,8 @@ final class RecordRepository
                          location_lat = :location_lat,
                          location_lng = :location_lng,
                          location_address = :location_address,
+                         location_accuracy_meters = :location_accuracy_meters,
+                         location_captured_at = :location_captured_at,
                          rectification_date = :rectification_date,
                          rectification_note = :rectification_note,
                          rectification_person = :rectification_person
@@ -212,11 +221,13 @@ final class RecordRepository
                     "INSERT INTO inspection_records
                      (client_uuid, company_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
                       inspector_name, delivery_person, inspection_date, check_result, status, remark,
-                      location_lat, location_lng, location_address, rectification_date, rectification_note, rectification_person)
+                      location_lat, location_lng, location_address, location_accuracy_meters, location_captured_at,
+                      rectification_date, rectification_note, rectification_person)
                      VALUES
                      (:client_uuid, :company_id, :creator_id, 'draft', :customer_name, :customer_phone, :customer_type, :customer_address,
                       :inspector_name, :delivery_person, :inspection_date, :check_result, :status, :remark,
-                      :location_lat, :location_lng, :location_address, :rectification_date, :rectification_note, :rectification_person)"
+                      :location_lat, :location_lng, :location_address, :location_accuracy_meters, :location_captured_at,
+                      :rectification_date, :rectification_note, :rectification_person)"
                 );
                 $stmt->execute($values);
                 $recordId = (int) $this->pdo->lastInsertId();
@@ -264,6 +275,9 @@ final class RecordRepository
         $record = $this->findForUser($id, $user);
         if (!$record) {
             return;
+        }
+        if (($user['role'] ?? '') === 'inspector' && (int) $record['creator_id'] !== (int) $user['id']) {
+            throw new HttpException(403, '公司数据查看权限不包含修改或整改他人记录。');
         }
 
         $stmt = $this->pdo->prepare(
@@ -377,10 +391,11 @@ final class RecordRepository
     /** @param array<string, mixed> $user @return array{0:string,1:array<string,mixed>} */
     private function scopeCondition(array $user, string $alias): array
     {
-        if (($user['role'] ?? '') === 'hq_admin') {
+        $scope = UserAccess::recordScope($user);
+        if ($scope === 'all') {
             return ['1 = 1', []];
         }
-        if (($user['role'] ?? '') === 'company_admin') {
+        if ($scope === 'company') {
             return [
                 "{$alias}.company_id = :scope_company_id",
                 ['scope_company_id' => (int) $user['company_id']],
@@ -497,10 +512,10 @@ final class RecordRepository
         $stmt = $this->pdo->prepare(
             "INSERT INTO record_photos
              (record_id, photo_type, hazard_code, file_path, original_name, mime_type, file_size,
-              watermark_address, latitude, longitude, captured_at)
+              watermark_address, latitude, longitude, accuracy_meters, captured_at)
              VALUES
              (:record_id, :photo_type, :hazard_code, :file_path, :original_name, :mime_type, :file_size,
-              :watermark_address, :latitude, :longitude, :captured_at)"
+              :watermark_address, :latitude, :longitude, :accuracy_meters, :captured_at)"
         );
         $stmt->execute([
             'record_id' => $recordId,
@@ -513,6 +528,7 @@ final class RecordRepository
             'watermark_address' => $photo['watermarkAddress'] ?? null,
             'latitude' => $photo['latitude'] ?? null,
             'longitude' => $photo['longitude'] ?? null,
+            'accuracy_meters' => $photo['accuracyMeters'] ?? null,
             'captured_at' => $photo['capturedAt'] ?? null,
         ]);
     }
@@ -522,15 +538,47 @@ final class RecordRepository
     {
         $flat = [];
         foreach (['storefront', 'cylinder_qr', 'cylinder', 'rectification'] as $type) {
-            foreach (($photos[$type] ?? []) as $filePath) {
-                $flat[] = ['type' => $type, 'filePath' => (string) $filePath];
+            foreach (($photos[$type] ?? []) as $photo) {
+                $normalized = $this->normalizePhoto($photo, $type);
+                if ($normalized) {
+                    $flat[] = $normalized;
+                }
             }
         }
         foreach (($photos['hazard'] ?? []) as $code => $items) {
-            foreach ((array) $items as $filePath) {
-                $flat[] = ['type' => 'hazard', 'hazardCode' => (string) $code, 'filePath' => (string) $filePath];
+            foreach ((array) $items as $photo) {
+                $normalized = $this->normalizePhoto($photo, 'hazard', (string) $code);
+                if ($normalized) {
+                    $flat[] = $normalized;
+                }
             }
         }
         return $flat;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function normalizePhoto(mixed $photo, string $type, ?string $hazardCode = null): ?array
+    {
+        if (is_string($photo)) {
+            $filePath = trim($photo);
+            return $filePath === '' ? null : [
+                'type' => $type,
+                'hazardCode' => $hazardCode,
+                'filePath' => $filePath,
+            ];
+        }
+        if (!is_array($photo)) {
+            return null;
+        }
+
+        $filePath = trim((string) ($photo['filePath'] ?? ''));
+        if ($filePath === '') {
+            return null;
+        }
+        return array_merge($photo, [
+            'type' => $type,
+            'hazardCode' => $hazardCode ?? ($photo['hazardCode'] ?? null),
+            'filePath' => $filePath,
+        ]);
     }
 }

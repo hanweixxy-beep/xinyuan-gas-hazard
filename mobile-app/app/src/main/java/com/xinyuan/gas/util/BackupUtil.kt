@@ -336,6 +336,10 @@ object BackupUtil {
                 .put("customerPhone", record.customerPhone)
                 .put("customerType", record.customerType)
                 .put("customerAddress", record.customerAddress)
+                .put("locationLatitude", record.locationLatitude)
+                .put("locationLongitude", record.locationLongitude)
+                .put("locationAccuracyMeters", record.locationAccuracyMeters)
+                .put("locationCapturedAt", record.locationCapturedAt)
                 .put("inspectorName", record.inspectorName)
                 .put("inspectionDate", record.inspectionDate)
                 .put("checkResult", record.checkResult)
@@ -407,6 +411,10 @@ object BackupUtil {
                 customerPhone = item.optString("customerPhone"),
                 customerType = item.optString("customerType"),
                 customerAddress = item.optString("customerAddress"),
+                locationLatitude = item.optDouble("locationLatitude").takeUnless { item.isNull("locationLatitude") || it.isNaN() },
+                locationLongitude = item.optDouble("locationLongitude").takeUnless { item.isNull("locationLongitude") || it.isNaN() },
+                locationAccuracyMeters = item.optDouble("locationAccuracyMeters").takeUnless { item.isNull("locationAccuracyMeters") || it.isNaN() }?.toFloat(),
+                locationCapturedAt = item.optLong("locationCapturedAt", 0L),
                 inspectorName = item.optString("inspectorName"),
                 inspectionDate = item.optLong("inspectionDate", System.currentTimeMillis()),
                 checkResult = item.optString("checkResult", TerminalHazardCatalog.RESULT_CLEARED),

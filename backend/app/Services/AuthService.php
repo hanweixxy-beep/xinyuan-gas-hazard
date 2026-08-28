@@ -86,6 +86,7 @@ final class AuthService
             'phone' => $user['phone'],
             'role' => $user['role'],
             'loginScope' => $user['login_scope'] ?? 'both',
+            'canViewCompanyRecords' => !empty($user['can_view_company_records']),
         ];
     }
 

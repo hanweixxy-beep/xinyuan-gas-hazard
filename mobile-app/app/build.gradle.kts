@@ -36,8 +36,8 @@ android {
         applicationId = "com.xinyuan.gas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "2.0.8"
+        versionCode = 20
+        versionName = "2.0.9"
     }
 
     signingConfigs {
@@ -113,6 +113,8 @@ dependencies {
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    testImplementation("junit:junit:4.13.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

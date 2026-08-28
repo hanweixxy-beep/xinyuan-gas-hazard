@@ -60,6 +60,7 @@ $router->add('POST', '/api/admin/companies', fn (Request $request) => $adminCont
 $router->add('GET', '/api/admin/users', fn (Request $request) => $adminController->users($request));
 $router->add('POST', '/api/admin/users', fn (Request $request) => $adminController->createUser($request));
 $router->add('POST', '/api/admin/users/{id}/status', fn (Request $request, array $params) => $adminController->updateUserStatus($request, $params));
+$router->add('POST', '/api/admin/users/{id}/access', fn (Request $request, array $params) => $adminController->updateUserAccess($request, $params));
 $router->add('POST', '/api/admin/users/{id}/reset-password', fn (Request $request, array $params) => $adminController->resetPassword($request, $params));
 $router->add('GET', '/api/catalog', fn () => $catalogController->index());
 $router->add('GET', '/api/export/columns', fn () => $exportController->columns());

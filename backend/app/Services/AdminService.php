@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Core\HttpException;
+use App\Domain\UserAccess;
 use App\Repositories\CompanyRepository;
 use App\Repositories\UserRepository;
 
@@ -10,7 +11,6 @@ final class AdminService
 {
     private const ROLES = ['hq_admin', 'company_admin', 'inspector'];
     private const STATUSES = ['active', 'disabled'];
-    private const LOGIN_SCOPES = ['app', 'admin', 'both'];
 
     public function __construct(
         private CompanyRepository $companies,
@@ -64,7 +64,8 @@ final class AdminService
         $name = trim((string) ($payload['name'] ?? ''));
         $phone = trim((string) ($payload['phone'] ?? ''));
         $role = (string) ($payload['role'] ?? '');
-        $loginScope = (string) ($payload['loginScope'] ?? ($role === 'inspector' ? 'both' : 'admin'));
+        $loginScope = (string) ($payload['loginScope'] ?? UserAccess::defaultLoginScope($role));
+        $canViewCompanyRecords = $role === 'inspector' && !empty($payload['canViewCompanyRecords']);
         $password = (string) ($payload['password'] ?? '');
         $companyId = $this->resolveCompanyId($actor, $payload);
 
@@ -77,11 +78,8 @@ final class AdminService
         if (!in_array($role, self::ROLES, true)) {
             throw new HttpException(422, '用户角色不正确。');
         }
-        if (!in_array($loginScope, self::LOGIN_SCOPES, true)) {
+        if (!in_array($loginScope, UserAccess::allowedLoginScopes($role), true)) {
             throw new HttpException(422, '登录权限不正确。');
-        }
-        if ($role !== 'inspector' && $loginScope !== 'admin') {
-            throw new HttpException(422, '管理员账号只能登录电脑管理后台。');
         }
         if (mb_strlen($password) < 8) {
             throw new HttpException(422, '初始密码至少 8 位。');
@@ -99,7 +97,29 @@ final class AdminService
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
             'role' => $role,
             'login_scope' => $loginScope,
+            'can_view_company_records' => $canViewCompanyRecords ? 1 : 0,
         ]);
+    }
+
+    /** @param array<string, mixed> $actor @param array<string, mixed> $payload */
+    public function updateUserAccess(array $actor, int $id, array $payload): void
+    {
+        $this->requireManager($actor);
+        if ((int) $actor['id'] === $id) {
+            throw new HttpException(422, '当前登录账号不能在此处修改自身权限。');
+        }
+        $target = $this->requireTargetUser($actor, $id);
+        $this->assertTargetManageable($actor, $target);
+
+        $role = (string) $target['role'];
+        $loginScope = (string) ($payload['loginScope'] ?? $target['login_scope'] ?? UserAccess::defaultLoginScope($role));
+        if (!in_array($loginScope, UserAccess::allowedLoginScopes($role), true)) {
+            throw new HttpException(422, '登录权限不正确。');
+        }
+
+        $canViewCompanyRecords = $role === 'inspector' && !empty($payload['canViewCompanyRecords']);
+        $this->users->updateAccess($id, $loginScope, $canViewCompanyRecords);
+        $this->users->deleteSessionsForUser($id);
     }
 
     /** @param array<string, mixed> $actor */

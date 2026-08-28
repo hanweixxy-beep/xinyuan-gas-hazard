@@ -50,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -94,6 +95,7 @@ import com.xinyuan.gas.ui.theme.RedSoft
 import com.xinyuan.gas.util.PhotoUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -109,6 +111,7 @@ fun TerminalHazardFormScreen(
     editRecordId: Long = 0L
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val formScrollState = rememberScrollState()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
@@ -124,6 +127,11 @@ fun TerminalHazardFormScreen(
     var customerPhone by remember { mutableStateOf("") }
     var customerType by remember { mutableStateOf("") }
     var customerAddress by remember { mutableStateOf("") }
+    var locationLatitude by remember { mutableStateOf<Double?>(null) }
+    var locationLongitude by remember { mutableStateOf<Double?>(null) }
+    var locationAccuracyMeters by remember { mutableStateOf<Float?>(null) }
+    var locationCapturedAt by remember { mutableStateOf(0L) }
+    var isResolvingLocation by remember { mutableStateOf(false) }
     var inspectorName by remember {
         mutableStateOf(cloudSettings.userName.ifBlank { prefs.getString("last_inspector", "") ?: "" })
     }
@@ -164,6 +172,10 @@ fun TerminalHazardFormScreen(
                     customerPhone = record.customerPhone
                     customerType = record.customerType
                     customerAddress = record.customerAddress
+                    locationLatitude = record.locationLatitude
+                    locationLongitude = record.locationLongitude
+                    locationAccuracyMeters = record.locationAccuracyMeters
+                    locationCapturedAt = record.locationCapturedAt
                     inspectorName = record.inspectorName
                     inspectionDate = record.inspectionDate
                     checkResult = record.checkResult
@@ -216,23 +228,31 @@ fun TerminalHazardFormScreen(
         val uri = currentPhotoUri
         if (success && uri != null) {
             if (target == "storefront") {
-                val locationSnapshot = PhotoUtil.getLocationSnapshot(context)
-                if (locationSnapshot.address.isBlank() && locationSnapshot.watermarkText.isBlank()) {
-                    PhotoUtil.deletePhoto(context, uri.toString())
-                    Toast.makeText(context, "未获取到用户地址，请确认定位权限后重新拍照", Toast.LENGTH_SHORT).show()
-                } else {
-                    customerAddress = locationSnapshot.address.ifBlank { "用户地址坐标已记录" }
-                    PhotoUtil.addWatermark(
-                        context,
-                        uri,
-                        customerAddress,
-                        inspectorName,
-                        customerName,
-                        customerPhone,
-                        locationSnapshot.watermarkText
-                    )
-                    if (storefrontPhoto.isNotEmpty()) PhotoUtil.deletePhoto(context, storefrontPhoto)
-                    storefrontPhoto = uri.toString()
+                isResolvingLocation = true
+                coroutineScope.launch {
+                    val locationSnapshot = PhotoUtil.getLocationSnapshot(context)
+                    if (!locationSnapshot.isUsable || locationSnapshot.address.isBlank()) {
+                        PhotoUtil.deletePhoto(context, uri.toString())
+                        Toast.makeText(context, "未获得有效的新定位，请到室外确认定位已开启后重新拍照", Toast.LENGTH_LONG).show()
+                    } else {
+                        customerAddress = locationSnapshot.address
+                        locationLatitude = locationSnapshot.latitude
+                        locationLongitude = locationSnapshot.longitude
+                        locationAccuracyMeters = locationSnapshot.accuracyMeters
+                        locationCapturedAt = locationSnapshot.capturedAt
+                        PhotoUtil.addWatermark(
+                            context,
+                            uri,
+                            customerAddress,
+                            cloudSettings.userName.ifBlank { inspectorName },
+                            customerName,
+                            customerPhone,
+                            locationSnapshot.watermarkText
+                        )
+                        if (storefrontPhoto.isNotEmpty()) PhotoUtil.deletePhoto(context, storefrontPhoto)
+                        storefrontPhoto = uri.toString()
+                    }
+                    isResolvingLocation = false
                 }
             } else if (target == "cylinder_qr") {
                 PhotoUtil.addWatermark(context, uri, customerAddress, inspectorName, customerName, customerPhone)
@@ -264,6 +284,10 @@ fun TerminalHazardFormScreen(
     }
 
     fun takePhoto(target: String) {
+        if (isResolvingLocation) {
+            Toast.makeText(context, "正在获取新定位，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (target == "storefront" && !storefrontWatermarkReady) {
             Toast.makeText(
                 context,
@@ -297,6 +321,10 @@ fun TerminalHazardFormScreen(
             customerPhone = customerPhone,
             customerType = customerType,
             customerAddress = customerAddress,
+            locationLatitude = locationLatitude,
+            locationLongitude = locationLongitude,
+            locationAccuracyMeters = locationAccuracyMeters,
+            locationCapturedAt = locationCapturedAt,
             inspectorName = cloudSettings.userName.ifBlank { inspectorName },
             inspectionDate = inspectionDate,
             checkResult = resultToSave,
@@ -394,6 +422,10 @@ fun TerminalHazardFormScreen(
         customerPhone,
         customerType,
         customerAddress,
+        locationLatitude,
+        locationLongitude,
+        locationAccuracyMeters,
+        locationCapturedAt,
         storefrontPhoto,
         deliveryPerson,
         inspectionDate,
@@ -446,7 +478,7 @@ fun TerminalHazardFormScreen(
         bottomBar = {
             FormActionBar(
                 step = currentStep,
-                submitting = cloudSubmitInProgress,
+                submitting = cloudSubmitInProgress || isResolvingLocation,
                 onCancel = onBack,
                 onPrevious = { currentStep = (currentStep - 1).coerceAtLeast(0) },
                 onNext = {
@@ -529,7 +561,7 @@ fun TerminalHazardFormScreen(
                         }
 
                         IOSGroupCard(title = "现场信息") {
-                            LocationCard(customerAddress)
+                            LocationCard(customerAddress, isResolvingLocation, locationAccuracyMeters)
                             Text(
                                 text = "先填写上方必填信息，再拍门头照片。照片会写入日期时间、用户电话、检查人和用户地址水印。",
                                 style = MaterialTheme.typography.bodySmall,
@@ -540,8 +572,10 @@ fun TerminalHazardFormScreen(
                                 title = "门头照片",
                                 photoUri = storefrontPhoto,
                                 required = true,
-                                enabled = storefrontWatermarkReady,
-                                helperText = if (storefrontWatermarkReady) {
+                                enabled = storefrontWatermarkReady && !isResolvingLocation,
+                                helperText = if (isResolvingLocation) {
+                                    "正在主动获取新的高精度定位…"
+                                } else if (storefrontWatermarkReady) {
                                     "拍摄时自动获取用户地址与经纬度"
                                 } else {
                                     "请先填写：${storefrontMissingFields.joinToString("、")}"
@@ -551,6 +585,10 @@ fun TerminalHazardFormScreen(
                                     PhotoUtil.deletePhoto(context, storefrontPhoto)
                                     storefrontPhoto = ""
                                     customerAddress = ""
+                                    locationLatitude = null
+                                    locationLongitude = null
+                                    locationAccuracyMeters = null
+                                    locationCapturedAt = 0L
                                 },
                                 onPreviewPhoto = { previewPhoto = storefrontPhoto }
                             )
@@ -1034,7 +1072,7 @@ private fun FormActionBar(
 }
 
 @Composable
-private fun LocationCard(address: String) {
+private fun LocationCard(address: String, resolving: Boolean, accuracyMeters: Float?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1054,12 +1092,21 @@ private fun LocationCard(address: String) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (address.isBlank()) "等待获取用户地址" else "已获取用户地址",
+                when {
+                    resolving -> "正在获取新定位"
+                    address.isBlank() -> "等待获取用户地址"
+                    else -> "已获取用户地址"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = InkPrimary
             )
             Text(
-                address.ifBlank { "拍摄门头照片后自动记录定位地址" },
+                when {
+                    resolving -> "请保持在当前用户位置，通常需要数秒"
+                    address.isBlank() -> "拍摄门头照片后自动记录定位地址"
+                    accuracyMeters != null -> "$address · 精度约${accuracyMeters.toInt()}米"
+                    else -> address
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = GraySecondaryText,
                 modifier = Modifier.padding(top = 4.dp)

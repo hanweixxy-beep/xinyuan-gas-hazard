@@ -49,6 +49,14 @@ final class AdminController
     }
 
     /** @param array<string, string> $params @return array<string, mixed> */
+    public function updateUserAccess(Request $request, array $params): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        $this->admin->updateUserAccess($user, (int) $params['id'], $request->json());
+        return ['id' => (int) $params['id']];
+    }
+
+    /** @param array<string, string> $params @return array<string, mixed> */
     public function resetPassword(Request $request, array $params): array
     {
         $user = $this->auth->requireUser($request->bearerToken());

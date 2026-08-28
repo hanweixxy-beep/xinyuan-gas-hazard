@@ -54,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,6 +86,7 @@ import com.xinyuan.gas.ui.theme.OrangeAccent
 import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
 import com.xinyuan.gas.util.PhotoUtil
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,6 +107,7 @@ internal fun CloudRectificationDialog(
     ) -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val dateText = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date()) }
     var rectificationPerson by remember(detail.id) {
@@ -120,17 +123,20 @@ internal fun CloudRectificationDialog(
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = pendingPhotoUri
         if (success && uri != null) {
-            PhotoUtil.addWatermark(
-                context = context,
-                photoUri = uri,
-                address = detail.customerAddress,
-                inspector = rectificationPerson.ifBlank { defaultPerson },
-                customerName = detail.customerName,
-                customerPhone = detail.customerPhone,
-                locationText = PhotoUtil.getLocationWatermark(context)
-            )
-            photoUris = photoUris + uri.toString()
-            validationError = ""
+            coroutineScope.launch {
+                val locationText = PhotoUtil.getLocationWatermark(context)
+                PhotoUtil.addWatermark(
+                    context = context,
+                    photoUri = uri,
+                    address = detail.customerAddress,
+                    inspector = rectificationPerson.ifBlank { defaultPerson },
+                    customerName = detail.customerName,
+                    customerPhone = detail.customerPhone,
+                    locationText = locationText
+                )
+                photoUris = photoUris + uri.toString()
+                validationError = ""
+            }
         } else {
             uri?.let { PhotoUtil.deletePhoto(context, it.toString()) }
         }
