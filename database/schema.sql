@@ -171,6 +171,7 @@ CREATE TABLE `sessions` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_sessions_token_hash` (`token_hash`),
+  UNIQUE KEY `uk_sessions_user_client` (`user_id`,`client_type`),
   KEY `idx_sessions_user_expires` (`user_id`,`expires_at`),
   CONSTRAINT `fk_sessions_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

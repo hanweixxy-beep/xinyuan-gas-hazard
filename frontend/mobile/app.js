@@ -416,6 +416,12 @@ async function api(path, options = {}) {
 
   const response = await fetch(`${apiBase}${path}`, { ...options, headers });
   const result = await response.json().catch(() => ({}));
+  if (response.status === 401 && state.token) {
+    const message = result.message || '当前账号已在另一台手机或 H5 登录，请重新登录。';
+    logout(false);
+    showToast(message);
+    throw new Error(message);
+  }
   if (!response.ok || result.ok === false) {
     throw new Error(result.message || '请求失败，请稍后重试。');
   }

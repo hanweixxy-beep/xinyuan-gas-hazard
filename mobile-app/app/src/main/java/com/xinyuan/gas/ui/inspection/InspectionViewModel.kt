@@ -583,17 +583,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun handleCloudFailure(prefix: String, error: Throwable) {
-        markCloudRequestFailure(error)
-        if (error is CloudApiException && error.statusCode == 401) {
-            val cleared = withContext(Dispatchers.IO) { cloudStore.clear() }
-            _cloudSettings.value = cleared
-            _cloudRecords.value = emptyList()
-            _cloudRecordDetail.value = null
-            activeCloudClient = null
-            activeCloudClientKey = ""
-            _dataActionMessage.emit("登录已过期，请重新登录")
-            return
-        }
+        if (markCloudRequestFailure(error)) return
         _dataActionMessage.emit("$prefix：${error.message ?: "未知错误"}")
     }
 
@@ -604,12 +594,29 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
-    private fun markCloudRequestFailure(error: Throwable) {
+    private fun markCloudRequestFailure(error: Throwable): Boolean {
+        if (error is CloudApiException && error.statusCode == 401) {
+            val cleared = cloudStore.clear()
+            _cloudSettings.value = cleared
+            _cloudRecords.value = emptyList()
+            _cloudRecordDetail.value = null
+            activeCloudClient = null
+            activeCloudClientKey = ""
+            _cloudConnectionState.value = CloudConnectionUiState(
+                verified = true,
+                message = "当前登录已失效"
+            )
+            viewModelScope.launch {
+                _dataActionMessage.emit("当前账号已在另一台手机或 H5 登录，请重新登录")
+            }
+            return true
+        }
         val serverReached = error is CloudApiException && error.statusCode in 400..499
         _cloudConnectionState.value = CloudConnectionUiState(
             verified = if (serverReached) true else false,
             message = if (serverReached) "云端连接正常，请检查填写内容" else "云端连接异常"
         )
+        return false
     }
 
     fun migrateLegacyRecords() {

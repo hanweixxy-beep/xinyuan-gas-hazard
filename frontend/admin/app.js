@@ -157,6 +157,12 @@ async function api(path, options = {}) {
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
   const response = await fetch(`${apiBase}${path}`, { ...options, headers });
   const result = await response.json().catch(() => ({}));
+  if (response.status === 401 && state.token) {
+    const message = result.message || '当前账号已在另一台电脑登录，请重新登录。';
+    logout();
+    showToast(message);
+    throw new Error(message);
+  }
   if (!response.ok || result.ok === false) {
     throw new Error(result.message || '请求失败，请稍后重试。');
   }

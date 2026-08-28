@@ -51,7 +51,11 @@ final class UserRepository
 
         $stmt = $this->pdo->prepare(
             "INSERT INTO sessions (user_id, client_type, token_hash, expires_at)
-             VALUES (:user_id, :client_type, :token_hash, :expires_at)"
+             VALUES (:user_id, :client_type, :token_hash, :expires_at)
+             ON DUPLICATE KEY UPDATE
+               token_hash = VALUES(token_hash),
+               expires_at = VALUES(expires_at),
+               created_at = CURRENT_TIMESTAMP"
         );
         $stmt->bindValue('user_id', $userId, PDO::PARAM_INT);
         $stmt->bindValue('client_type', $clientType);

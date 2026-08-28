@@ -55,7 +55,7 @@ final class AuthService
 
         $user = $this->users->findByToken($token);
         if (!$user) {
-            throw new HttpException(401, '登录已过期，请重新登录。');
+            throw new HttpException(401, '登录已失效，可能已在同一端的另一台设备登录，请重新登录。');
         }
 
         return $user;
