@@ -66,7 +66,8 @@ object PhotoUtil {
         inspector: String,
         customerName: String,
         customerPhone: String,
-        locationText: String = ""
+        locationText: String = "",
+        deliveryPerson: String = ""
     ) {
         try {
             val inputStream = context.contentResolver.openInputStream(photoUri) ?: return
@@ -88,7 +89,11 @@ object PhotoUtil {
             val now = Date()
             val dateLine = SimpleDateFormat("日期：yyyy-MM-dd  时间：HH:mm:ss", Locale.CHINA).format(now)
             val addressLine = "用户地址：$address"
-            val inspectorLine = "检查人：$inspector"
+            val inspectorLine = if (deliveryPerson.isBlank()) {
+                "检查人：$inspector"
+            } else {
+                "检查人：$inspector  配送员：$deliveryPerson"
+            }
             val customerLine = "用户：$customerName  电话：$customerPhone"
             val rawLines = listOf(dateLine, addressLine, inspectorLine, customerLine) +
                 locationText.lineSequence()

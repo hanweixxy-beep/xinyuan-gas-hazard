@@ -9,7 +9,7 @@ import {
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_h5_token';
 const cloudDraftKey = 'xinyuan_h5_cloud_draft_uuid';
-const singlePageForm = false;
+const singlePageForm = true;
 const LOCATION_TARGET_ACCURACY_METERS = 30;
 const LOCATION_MAX_ACCURACY_METERS = 100;
 const LOCATION_FIX_TIMEOUT_MS = 15000;
@@ -265,9 +265,13 @@ function updateStepSurface() {
     const prev = $('#stepPrevBtn');
     const next = $('#stepNextBtn');
     const submit = $('#submitRecordBtn');
+    const clear = $('#clearFormBtn');
+    $('#formStepper')?.classList.add('hidden');
+    if (clear) clear.classList.remove('hidden');
     if (prev) prev.classList.add('hidden');
     if (next) next.classList.add('hidden');
     if (submit) submit.classList.remove('hidden');
+    $('#cloudDraftBanner')?.classList.toggle('hidden', !state.cloudDraftSaved);
     renderAddressSurface();
     renderReviewSummary();
     return;
@@ -1131,6 +1135,10 @@ async function uploadFiles(fileList) {
 
 function validatePhotoContext(field = '') {
   const form = getFormData();
+  if (field !== 'storefront' && (!hasPhoto('storefront') || !state.location || !form.customerAddress)) {
+    focusFormField('storefront');
+    return '请先拍摄门头照片获取用户地址和定位，再拍摄其他照片。';
+  }
   const required = [
     ['customerName', form.customerName, '用户名'],
     ['customerPhone', form.customerPhone, '电话'],
@@ -1139,15 +1147,9 @@ function validatePhotoContext(field = '') {
     ['inspectionDate', form.inspectionDate, '检查日期'],
     ['deliveryPerson', form.deliveryPerson, '配送员']
   ];
-  if (field !== 'storefront') {
-    required.splice(3, 0, ['customerAddress', form.customerAddress, '用户地址']);
-  }
   const missing = required.find(([, value]) => !value);
   if (missing) {
-    focusFormField(missing[0] === 'customerAddress' ? 'storefront' : missing[0]);
-    if (missing[0] === 'customerAddress') {
-      return '请先拍摄门头照片自动获取用户地址，再拍摄其他照片。';
-    }
+    focusFormField(missing[0]);
     return field === 'storefront'
       ? `请先填写${missing[2]}，再拍摄门头照片生成完整水印。`
       : `请先填写${missing[2]}，再拍照生成完整水印。`;
@@ -1254,6 +1256,9 @@ async function handlePhotoInput(event) {
     }
     renderPhotoPreview(input.name);
     renderReviewSummary();
+    if (input.name === 'storefront') {
+      await saveCloudDraft();
+    }
     showToast(state.location ? '照片已生成定位水印。' : '照片已生成水印；当前未获取经纬度。');
   } catch (error) {
     showToast(error.message);
@@ -1506,15 +1511,6 @@ function bindEvents() {
     if (event.target.dataset.passwordClose) closePasswordDialog();
   });
   $('#passwordForm').addEventListener('submit', (event) => changePassword(event).catch((error) => showToast(error.message)));
-  $('#formStepper').addEventListener('click', (event) => {
-    const button = event.target.closest('[data-step-target]');
-    if (!button) return;
-    setFormStep(button.dataset.stepTarget).catch((error) => showToast(error.message));
-  });
-  $('#stepPrevBtn').addEventListener('click', previousFormStep);
-  $('#stepNextBtn').addEventListener('click', (event) => {
-    runWithButton(event.currentTarget, '保存中...', nextFormStep).catch((error) => showToast(error.message));
-  });
   $('#inspectionForm').addEventListener('submit', submitInspection);
   $('#inspectionForm').addEventListener('input', () => {
     renderAddressSurface();

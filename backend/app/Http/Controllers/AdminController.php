@@ -27,6 +27,43 @@ final class AdminController
     }
 
     /** @return array<string, mixed> */
+    public function organization(Request $request): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        return $this->admin->organization($user);
+    }
+
+    /** @return array<string, mixed> */
+    public function createRegion(Request $request): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        return ['id' => $this->admin->createRegion($user, $request->json())];
+    }
+
+    /** @return array<string, mixed> */
+    public function createStore(Request $request): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        return ['id' => $this->admin->createStore($user, $request->json())];
+    }
+
+    /** @param array<string, string> $params @return array<string, mixed> */
+    public function updateRegionStatus(Request $request, array $params): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        $this->admin->updateRegionStatus($user, (int) $params['id'], (string) $request->input('status', ''));
+        return ['id' => (int) $params['id']];
+    }
+
+    /** @param array<string, string> $params @return array<string, mixed> */
+    public function updateStoreStatus(Request $request, array $params): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        $this->admin->updateStoreStatus($user, (int) $params['id'], (string) $request->input('status', ''));
+        return ['id' => (int) $params['id']];
+    }
+
+    /** @return array<string, mixed> */
     public function users(Request $request): array
     {
         $user = $this->auth->requireUser($request->bearerToken());

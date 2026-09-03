@@ -45,6 +45,41 @@ CREATE TABLE `companies` (
   KEY `idx_companies_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `regions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `regions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `company_id` bigint unsigned NOT NULL,
+  `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('active','disabled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_regions_company_name` (`company_id`,`name`),
+  KEY `idx_regions_company_status` (`company_id`,`status`),
+  CONSTRAINT `fk_regions_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `stores`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `stores` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `company_id` bigint unsigned NOT NULL,
+  `region_id` bigint unsigned NOT NULL,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `status` enum('active','disabled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_stores_region_name` (`region_id`,`name`),
+  KEY `idx_stores_company_status` (`company_id`,`status`),
+  CONSTRAINT `fk_stores_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
+  CONSTRAINT `fk_stores_region` FOREIGN KEY (`region_id`) REFERENCES `regions` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `export_jobs`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -74,6 +109,8 @@ CREATE TABLE `inspection_records` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `client_uuid` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `company_id` bigint unsigned NOT NULL,
+  `region_id` bigint unsigned DEFAULT NULL,
+  `store_id` bigint unsigned DEFAULT NULL,
   `creator_id` bigint unsigned NOT NULL,
   `record_state` enum('draft','submitted') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'submitted',
   `customer_name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -99,10 +136,14 @@ CREATE TABLE `inspection_records` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_inspection_client_uuid` (`client_uuid`),
   KEY `idx_records_company_date` (`company_id`,`inspection_date`),
+  KEY `idx_records_region_date` (`region_id`,`inspection_date`),
+  KEY `idx_records_store_date` (`store_id`,`inspection_date`),
   KEY `idx_records_creator_date` (`creator_id`,`inspection_date`),
   KEY `idx_records_creator_state_date` (`creator_id`,`record_state`,`inspection_date`),
   KEY `idx_records_status` (`status`),
   CONSTRAINT `fk_records_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
+  CONSTRAINT `fk_records_region` FOREIGN KEY (`region_id`) REFERENCES `regions` (`id`),
+  CONSTRAINT `fk_records_store` FOREIGN KEY (`store_id`) REFERENCES `stores` (`id`),
   CONSTRAINT `fk_records_creator` FOREIGN KEY (`creator_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -182,6 +223,8 @@ DROP TABLE IF EXISTS `users`;
 CREATE TABLE `users` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `company_id` bigint unsigned DEFAULT NULL,
+  `region_id` bigint unsigned DEFAULT NULL,
+  `store_id` bigint unsigned DEFAULT NULL,
   `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
   `phone` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
   `password_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -195,7 +238,11 @@ CREATE TABLE `users` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_users_phone` (`phone`),
   KEY `idx_users_company_role` (`company_id`,`role`),
-  CONSTRAINT `fk_users_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
+  KEY `idx_users_region_role` (`region_id`,`role`),
+  KEY `idx_users_store_role` (`store_id`,`role`),
+  CONSTRAINT `fk_users_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
+  CONSTRAINT `fk_users_region` FOREIGN KEY (`region_id`) REFERENCES `regions` (`id`),
+  CONSTRAINT `fk_users_store` FOREIGN KEY (`store_id`) REFERENCES `stores` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

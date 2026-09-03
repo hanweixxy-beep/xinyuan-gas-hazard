@@ -14,9 +14,11 @@ final class UserRepository
     public function findActiveByPhone(string $phone): ?array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT u.*, c.name AS company_name
+            "SELECT u.*, c.name AS company_name, r.name AS region_name, s.name AS store_name
              FROM users u
              LEFT JOIN companies c ON c.id = u.company_id
+             LEFT JOIN regions r ON r.id = u.region_id
+             LEFT JOIN stores s ON s.id = u.store_id
              WHERE u.phone = :phone AND u.status = 'active'
              LIMIT 1"
         );
@@ -29,10 +31,12 @@ final class UserRepository
     public function findByToken(string $token): ?array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT u.*, c.name AS company_name
+            "SELECT u.*, c.name AS company_name, r.name AS region_name, st.name AS store_name
              FROM sessions s
              INNER JOIN users u ON u.id = s.user_id
              LEFT JOIN companies c ON c.id = u.company_id
+             LEFT JOIN regions r ON r.id = u.region_id
+             LEFT JOIN stores st ON st.id = u.store_id
              WHERE s.token_hash = :token_hash
                AND s.expires_at > NOW()
                AND u.status = 'active'
@@ -72,18 +76,26 @@ final class UserRepository
     {
         if ($actor['role'] === 'hq_admin') {
             $stmt = $this->pdo->query(
-                "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
+                "SELECT u.id, u.company_id, c.name AS company_name, u.region_id, r.name AS region_name,
+                        u.store_id, s.name AS store_name, u.name, u.phone, u.role, u.login_scope,
+                        u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
                  FROM users u
                  LEFT JOIN companies c ON c.id = u.company_id
+                 LEFT JOIN regions r ON r.id = u.region_id
+                 LEFT JOIN stores s ON s.id = u.store_id
                  ORDER BY u.id ASC"
             );
             return $stmt->fetchAll();
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT u.id, u.company_id, c.name AS company_name, u.name, u.phone, u.role, u.login_scope, u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
+            "SELECT u.id, u.company_id, c.name AS company_name, u.region_id, r.name AS region_name,
+                    u.store_id, s.name AS store_name, u.name, u.phone, u.role, u.login_scope,
+                    u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
              FROM users u
              LEFT JOIN companies c ON c.id = u.company_id
+             LEFT JOIN regions r ON r.id = u.region_id
+             LEFT JOIN stores s ON s.id = u.store_id
              WHERE u.company_id = :company_id
              ORDER BY u.id ASC"
         );
@@ -95,9 +107,11 @@ final class UserRepository
     public function findById(int $id): ?array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT u.*, c.name AS company_name
+            "SELECT u.*, c.name AS company_name, r.name AS region_name, s.name AS store_name
              FROM users u
              LEFT JOIN companies c ON c.id = u.company_id
+             LEFT JOIN regions r ON r.id = u.region_id
+             LEFT JOIN stores s ON s.id = u.store_id
              WHERE u.id = :id
              LIMIT 1"
         );
@@ -110,9 +124,11 @@ final class UserRepository
     public function findByPhone(string $phone): ?array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT u.*, c.name AS company_name
+            "SELECT u.*, c.name AS company_name, r.name AS region_name, s.name AS store_name
              FROM users u
              LEFT JOIN companies c ON c.id = u.company_id
+             LEFT JOIN regions r ON r.id = u.region_id
+             LEFT JOIN stores s ON s.id = u.store_id
              WHERE u.phone = :phone
              LIMIT 1"
         );
@@ -125,11 +141,15 @@ final class UserRepository
     public function createUser(array $user): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO users (company_id, name, phone, password_hash, role, login_scope, can_view_company_records, status)
-             VALUES (:company_id, :name, :phone, :password_hash, :role, :login_scope, :can_view_company_records, 'active')"
+            "INSERT INTO users
+             (company_id, region_id, store_id, name, phone, password_hash, role, login_scope, can_view_company_records, status)
+             VALUES
+             (:company_id, :region_id, :store_id, :name, :phone, :password_hash, :role, :login_scope, :can_view_company_records, 'active')"
         );
         $stmt->execute([
             'company_id' => $user['company_id'],
+            'region_id' => $user['region_id'] ?? null,
+            'store_id' => $user['store_id'] ?? null,
             'name' => $user['name'],
             'phone' => $user['phone'],
             'password_hash' => $user['password_hash'],
@@ -152,18 +172,31 @@ final class UserRepository
         $stmt->execute(['id' => $id, 'password_hash' => $passwordHash]);
     }
 
-    public function updateAccess(int $id, string $loginScope, bool $canViewCompanyRecords): void
+    public function updateAccess(
+        int $id,
+        string $loginScope,
+        bool $canViewCompanyRecords,
+        ?int $regionId = null,
+        ?int $storeId = null,
+        bool $updateOrganization = false
+    ): void
     {
+        $organizationSql = $updateOrganization ? ', region_id = :region_id, store_id = :store_id' : '';
         $stmt = $this->pdo->prepare(
-            'UPDATE users
-             SET login_scope = :login_scope, can_view_company_records = :can_view_company_records
-             WHERE id = :id'
+            "UPDATE users
+             SET login_scope = :login_scope, can_view_company_records = :can_view_company_records{$organizationSql}
+             WHERE id = :id"
         );
-        $stmt->execute([
+        $values = [
             'id' => $id,
             'login_scope' => $loginScope,
             'can_view_company_records' => $canViewCompanyRecords ? 1 : 0,
-        ]);
+        ];
+        if ($updateOrganization) {
+            $values['region_id'] = $regionId;
+            $values['store_id'] = $storeId;
+        }
+        $stmt->execute($values);
     }
 
     public function deleteSessionsForUser(int $id): void

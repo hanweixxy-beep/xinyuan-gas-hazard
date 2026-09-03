@@ -6,6 +6,8 @@ const state = {
   records: [],
   currentRecord: null,
   companies: [],
+  regions: [],
+  stores: [],
   users: [],
   accessUserId: 0,
   currentModule: 'home',
@@ -95,7 +97,11 @@ function isHqAdmin() {
 function renderFilterControls() {
   const companyField = $('#filterCompanyField');
   const companySelect = $('#filterCompanySelect');
-  if (!companyField || !companySelect) return;
+  const regionField = $('#filterRegionField');
+  const regionSelect = $('#filterRegionSelect');
+  const storeField = $('#filterStoreField');
+  const storeSelect = $('#filterStoreSelect');
+  if (!companyField || !companySelect || !regionField || !regionSelect || !storeField || !storeSelect) return;
 
   companyField.classList.toggle('hidden', !isHqAdmin());
   companySelect.disabled = !isHqAdmin();
@@ -111,14 +117,50 @@ function renderFilterControls() {
   if ([...companySelect.options].some((option) => option.value === selected)) {
     companySelect.value = selected;
   }
+
+  const companyId = isHqAdmin() ? Number(companySelect.value || 0) : Number(state.user?.companyId || 0);
+  const regionSelected = regionSelect.value;
+  const availableRegions = state.regions.filter((region) => (
+    region.status === 'active' && (!companyId || Number(region.company_id) === companyId)
+  ));
+  regionSelect.innerHTML = [
+    '<option value="">全部片区</option>',
+    ...availableRegions.map((region) => `<option value="${region.id}">${escapeHtml(region.name)}</option>`)
+  ].join('');
+  if ([...regionSelect.options].some((option) => option.value === regionSelected)) {
+    regionSelect.value = regionSelected;
+  }
+
+  const storeSelected = storeSelect.value;
+  const regionId = Number(regionSelect.value || 0);
+  const availableStores = state.stores.filter((store) => (
+    store.status === 'active' &&
+    (!companyId || Number(store.company_id) === companyId) &&
+    (!regionId || Number(store.region_id) === regionId)
+  ));
+  storeSelect.innerHTML = [
+    '<option value="">全部门店</option>',
+    ...availableStores.map((store) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`)
+  ].join('');
+  if ([...storeSelect.options].some((option) => option.value === storeSelected)) {
+    storeSelect.value = storeSelected;
+  }
+
+  const showOrganization = isManager() && (availableRegions.length > 0 || state.regions.length > 0);
+  regionField.classList.toggle('hidden', !showOrganization);
+  storeField.classList.toggle('hidden', !showOrganization);
 }
 
 async function ensureFilterLookups() {
   renderFilterControls();
-  if (!isHqAdmin() || state.companies.length > 0) return;
+  if (!isManager() || state.regions.length > 0) return;
 
-  const data = await api('/admin/companies');
-  state.companies = data.companies || [];
+  const requests = [api('/admin/organization')];
+  if (isHqAdmin() && state.companies.length === 0) requests.push(api('/admin/companies'));
+  const [organization, companies] = await Promise.all(requests);
+  state.regions = organization.regions || [];
+  state.stores = organization.stores || [];
+  if (companies) state.companies = companies.companies || [];
   renderFilterControls();
 }
 
@@ -193,6 +235,8 @@ function logout() {
   state.records = [];
   state.currentRecord = null;
   state.companies = [];
+  state.regions = [];
+  state.stores = [];
   state.users = [];
   state.currentModule = 'home';
   localStorage.removeItem(tokenKey);
@@ -282,11 +326,11 @@ function showModule(moduleName = 'home') {
     home: '工作总览',
     records: '检查记录',
     export: '数据导出',
-    admin: '公司与账号',
+    admin: '组织与账号',
     help: '使用说明'
   };
   setText('#adminPageTitle', titles[nextModule] || '工作总览');
-  $('#refreshBtn').textContent = nextModule === 'admin' ? '刷新账号' : '刷新';
+  $('#refreshBtn').textContent = nextModule === 'admin' ? '刷新组织' : '刷新';
 }
 
 async function openModule(moduleName) {
@@ -388,6 +432,8 @@ function filters() {
   return {
     keyword: form.get('keyword') || '',
     companyId: form.get('companyId') || '',
+    regionId: form.get('regionId') || '',
+    storeId: form.get('storeId') || '',
     status: form.get('status') || '',
     checkResult: form.get('checkResult') || '',
     customerType: form.get('customerType') || '',
@@ -440,11 +486,14 @@ async function exportRecords(button = $('#exportBtn')) {
 
 async function loadAdminData(button = null) {
   await runWithButton(button, '正在刷新...', async () => {
-    const [companiesData, usersData] = await Promise.all([
+    const [companiesData, organizationData, usersData] = await Promise.all([
       api('/admin/companies'),
+      api('/admin/organization'),
       api('/admin/users')
     ]);
     state.companies = companiesData.companies || [];
+    state.regions = organizationData.regions || [];
+    state.stores = organizationData.stores || [];
     state.users = usersData.users || [];
     renderFilterControls();
     renderAdminPanel();
@@ -457,21 +506,36 @@ function renderAdminPanel() {
   $('#companyListBlock').classList.toggle('hidden', !isHqAdmin());
   renderCompanyOptions();
   renderRoleOptions();
+  renderOrganizationOptions();
   renderCompanyRows();
+  renderRegionRows();
+  renderStoreRows();
   renderUserRows();
 
   if (!isHqAdmin()) {
     $('#userCompanyField').classList.add('hidden');
+    $('#regionCompanyField').classList.add('hidden');
   } else {
     $('#userCompanyField').classList.remove('hidden');
+    $('#regionCompanyField').classList.remove('hidden');
   }
 }
 
 function renderCompanyOptions() {
-  $('#userCompanySelect').innerHTML = state.companies
+  const options = state.companies
     .filter((company) => company.status === 'active')
     .map((company) => `<option value="${company.id}">${escapeHtml(company.name)}（${escapeHtml(company.code)}）</option>`)
     .join('');
+  const userSelected = $('#userCompanySelect').value;
+  const regionSelected = $('#regionCompanySelect').value;
+  $('#userCompanySelect').innerHTML = options;
+  $('#regionCompanySelect').innerHTML = options;
+  if ([...$('#userCompanySelect').options].some((option) => option.value === userSelected)) {
+    $('#userCompanySelect').value = userSelected;
+  }
+  if ([...$('#regionCompanySelect').options].some((option) => option.value === regionSelected)) {
+    $('#regionCompanySelect').value = regionSelected;
+  }
 }
 
 function renderRoleOptions() {
@@ -496,6 +560,60 @@ function renderLoginScopeOptions() {
   if (role !== 'inspector') {
     $('#userCompanyDataField input').checked = false;
   }
+  renderUserOrganizationFields();
+}
+
+function selectOptions(select, items, placeholder, label, selectedValue = '') {
+  if (!select) return;
+  select.innerHTML = items.length
+    ? items.map((item) => `<option value="${item.id}">${escapeHtml(label(item))}</option>`).join('')
+    : `<option value="">${escapeHtml(placeholder)}</option>`;
+  if ([...select.options].some((option) => option.value === String(selectedValue))) {
+    select.value = String(selectedValue);
+  }
+}
+
+function activeRegions(companyId = 0) {
+  return state.regions.filter((region) => (
+    region.status === 'active' && (!companyId || Number(region.company_id) === Number(companyId))
+  ));
+}
+
+function activeStores(regionId = 0) {
+  return state.stores.filter((store) => (
+    store.status === 'active' && (!regionId || Number(store.region_id) === Number(regionId))
+  ));
+}
+
+function renderOrganizationOptions() {
+  const regions = activeRegions();
+  selectOptions(
+    $('#storeRegionSelect'),
+    regions,
+    '请先新增片区',
+    (region) => isHqAdmin() ? `${region.company_name} / ${region.name}` : region.name,
+    $('#storeRegionSelect')?.value
+  );
+  renderUserOrganizationFields();
+  renderFilterControls();
+}
+
+function renderUserOrganizationFields() {
+  const role = $('#userRoleSelect')?.value || 'inspector';
+  const isHeadquarters = role === 'hq_admin';
+  const level = $('#userOrganizationLevelSelect')?.value || 'store';
+  const companyId = Number($('#userCompanySelect')?.value || state.user?.companyId || 0);
+  const regionSelect = $('#userRegionSelect');
+  const storeSelect = $('#userStoreSelect');
+  const regionSelected = regionSelect?.value || '';
+  selectOptions(regionSelect, activeRegions(companyId), '请先新增片区', (region) => region.name, regionSelected);
+  const regionId = Number(regionSelect?.value || 0);
+  selectOptions(storeSelect, activeStores(regionId), '请先新增门店', (store) => store.name, storeSelect?.value || '');
+
+  ['#userOrganizationLevelField', '#userRegionField'].forEach((selector) => {
+    $(selector)?.classList.toggle('hidden', isHeadquarters);
+  });
+  $('#userStoreField')?.classList.toggle('hidden', isHeadquarters || level !== 'store');
 }
 
 function renderCompanyRows() {
@@ -506,6 +624,36 @@ function renderCompanyRows() {
       <td><span class="status ${company.status === 'active' ? '' : 'disabled'}">${company.status === 'active' ? '启用' : '停用'}</span></td>
     </tr>
   `).join('') || '<tr><td colspan="3">暂无公司</td></tr>';
+}
+
+function renderRegionRows() {
+  $('#regionRows').innerHTML = state.regions.map((region) => {
+    const nextStatus = region.status === 'active' ? 'disabled' : 'active';
+    return `
+      <tr>
+        <td>${escapeHtml(region.company_name || '-')}</td>
+        <td>${escapeHtml(region.name)}</td>
+        <td><span class="status ${region.status === 'active' ? '' : 'disabled'}">${userStatusText(region.status)}</span></td>
+        <td><button type="button" class="link-button" data-action="region-status" data-id="${region.id}" data-status="${nextStatus}">${region.status === 'active' ? '停用' : '启用'}</button></td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="4">暂无片区，请先新增</td></tr>';
+}
+
+function renderStoreRows() {
+  $('#storeRows').innerHTML = state.stores.map((store) => {
+    const nextStatus = store.status === 'active' ? 'disabled' : 'active';
+    return `
+      <tr>
+        <td>${escapeHtml(store.company_name || '-')}</td>
+        <td>${escapeHtml(store.region_name || '-')}</td>
+        <td>${escapeHtml(store.name)}</td>
+        <td>${escapeHtml(store.address || '-')}</td>
+        <td><span class="status ${store.status === 'active' ? '' : 'disabled'}">${userStatusText(store.status)}</span></td>
+        <td><button type="button" class="link-button" data-action="store-status" data-id="${store.id}" data-status="${nextStatus}">${store.status === 'active' ? '停用' : '启用'}</button></td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="6">暂无门店，请先新增</td></tr>';
 }
 
 function canOperateUser(user) {
@@ -523,6 +671,8 @@ function renderUserRows() {
         <td>${escapeHtml(user.name)}</td>
         <td>${escapeHtml(user.phone)}</td>
         <td>${escapeHtml(user.company_name || '-')}</td>
+        <td>${escapeHtml(user.region_name || '未分配')}</td>
+        <td>${escapeHtml(user.store_name || '-')}</td>
         <td>${roleLabel(user.role)}</td>
         <td>${loginScopeLabel(user.login_scope)}</td>
         <td>${dataScopeLabel(user)}</td>
@@ -537,7 +687,7 @@ function renderUserRows() {
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="9">暂无用户</td></tr>';
+  }).join('') || '<tr><td colspan="11">暂无用户</td></tr>';
 }
 
 async function createCompany(event) {
@@ -559,10 +709,50 @@ async function createCompany(event) {
   });
 }
 
+async function createRegion(event) {
+  event.preventDefault();
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const submitButton = formElement.querySelector('button[type="submit"]');
+  await runWithButton(submitButton, '正在新增...', async () => {
+    await api('/admin/regions', {
+      method: 'POST',
+      body: JSON.stringify({
+        companyId: form.get('companyId'),
+        name: String(form.get('name') || '').trim()
+      })
+    });
+    formElement.reset();
+    showToast('片区已新增');
+    await loadAdminData();
+  });
+}
+
+async function createStore(event) {
+  event.preventDefault();
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const submitButton = formElement.querySelector('button[type="submit"]');
+  await runWithButton(submitButton, '正在新增...', async () => {
+    await api('/admin/stores', {
+      method: 'POST',
+      body: JSON.stringify({
+        regionId: form.get('regionId'),
+        name: String(form.get('name') || '').trim(),
+        address: String(form.get('address') || '').trim()
+      })
+    });
+    formElement.reset();
+    showToast('门店已新增');
+    await loadAdminData();
+  });
+}
+
 async function createUser(event) {
   event.preventDefault();
   const formElement = event.currentTarget;
   const form = new FormData(formElement);
+  const organizationLevel = String(form.get('organizationLevel') || 'store');
   const submitButton = formElement.querySelector('button[type="submit"]');
   await runWithButton(submitButton, '正在新增...', async () => {
     await api('/admin/users', {
@@ -572,6 +762,8 @@ async function createUser(event) {
         name: String(form.get('name') || '').trim(),
         phone: String(form.get('phone') || '').trim(),
         role: String(form.get('role') || ''),
+        regionId: form.get('regionId'),
+        storeId: organizationLevel === 'store' ? form.get('storeId') : '',
         loginScope: String(form.get('loginScope') || 'both'),
         canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on',
         password: String(form.get('password') || '')
@@ -580,6 +772,18 @@ async function createUser(event) {
     formElement.reset();
     renderAdminPanel();
     showToast('用户已新增');
+    await loadAdminData();
+  });
+}
+
+async function updateOrganizationStatus(type, id, status, button = null) {
+  const label = type === 'regions' ? '片区' : '门店';
+  await runWithButton(button, status === 'active' ? '启用中...' : '停用中...', async () => {
+    await api(`/admin/${type}/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status })
+    });
+    showToast(`${label}已${status === 'active' ? '启用' : '停用'}`);
     await loadAdminData();
   });
 }
@@ -620,8 +824,39 @@ function openAccessModal(id) {
   $('#accessLoginScopeSelect').value = user.login_scope || 'both';
   $('#accessCompanyDataField').classList.toggle('hidden', user.role !== 'inspector');
   $('#accessCompanyDataField input').checked = user.role === 'inspector' && Number(user.can_view_company_records) === 1;
+  $('#accessOrganizationLevelSelect').value = user.store_id ? 'store' : 'region';
+  renderAccessOrganizationFields(user, true);
   $('#accessModal').classList.remove('hidden');
   $('#accessModal').setAttribute('aria-hidden', 'false');
+}
+
+function renderAccessOrganizationFields(user = null, initial = false) {
+  const target = user || state.users.find((item) => Number(item.id) === Number(state.accessUserId));
+  if (!target) return;
+  const isHeadquarters = target.role === 'hq_admin';
+  const level = $('#accessOrganizationLevelSelect').value || 'store';
+  const regionSelect = $('#accessRegionSelect');
+  const storeSelect = $('#accessStoreSelect');
+  const regionSelected = initial ? target.region_id : regionSelect.value;
+  selectOptions(
+    regionSelect,
+    activeRegions(Number(target.company_id || 0)),
+    '请先新增片区',
+    (region) => region.name,
+    regionSelected || ''
+  );
+  const storeSelected = initial ? target.store_id : storeSelect.value;
+  selectOptions(
+    storeSelect,
+    activeStores(Number(regionSelect.value || 0)),
+    '请先新增门店',
+    (store) => store.name,
+    storeSelected || ''
+  );
+  ['#accessOrganizationLevelField', '#accessRegionField'].forEach((selector) => {
+    $(selector).classList.toggle('hidden', isHeadquarters);
+  });
+  $('#accessStoreField').classList.toggle('hidden', isHeadquarters || level !== 'store');
 }
 
 function closeAccessModal() {
@@ -638,13 +873,16 @@ async function submitUserAccess(event) {
   if (!state.accessUserId) return;
   const formElement = event.currentTarget;
   const form = new FormData(formElement);
+  const organizationLevel = String(form.get('organizationLevel') || 'store');
   const submitButton = formElement.querySelector('button[type="submit"]');
   await runWithButton(submitButton, '保存中...', async () => {
     await api(`/admin/users/${state.accessUserId}/access`, {
       method: 'POST',
       body: JSON.stringify({
         loginScope: String(form.get('loginScope') || 'both'),
-        canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on'
+        canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on',
+        regionId: form.get('regionId'),
+        storeId: organizationLevel === 'store' ? form.get('storeId') : ''
       })
     });
     closeAccessModal();
@@ -664,6 +902,7 @@ function renderRows() {
     <tr data-id="${record.id}">
       <td>${escapeHtml(record.inspection_date || '')}</td>
       <td>${escapeHtml(record.company_name || '')}</td>
+      <td>${escapeHtml([record.region_name, record.store_name].filter(Boolean).join(' / ') || '未分配')}</td>
       <td>${escapeHtml(record.customer_name || '')}</td>
       <td>${escapeHtml(record.customer_phone || '')}</td>
       <td>${escapeHtml(record.customer_address || '')}</td>
@@ -671,7 +910,7 @@ function renderRows() {
       <td>${escapeHtml(record.inspector_name || '')}</td>
       <td><button type="button" class="link-button" data-action="detail" data-id="${record.id}">详情</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="8">暂无记录</td></tr>';
+  `).join('') || '<tr><td colspan="9">暂无记录</td></tr>';
   renderRecordPagination(records.length, start, pageRecords.length, pageCount);
 }
 
@@ -761,6 +1000,8 @@ function renderDetail(record) {
   $('#modalCompany').textContent = record.company_name || '';
   $('#modalTitle').textContent = `${record.customer_name || '未填写用户'} · ${statusText(record)}`;
   $('#recordDetail').innerHTML = [
+    ['片区', record.region_name || '未分配'],
+    ['门店', record.store_name || '未分配'],
     ['电话', record.customer_phone],
     ['用户类型', record.customer_type],
     ['地址', record.customer_address],
@@ -1109,8 +1350,23 @@ $('#exportPanelBtn').addEventListener('click', (event) => exportRecords(event.cu
 $('#changePasswordBtn').addEventListener('click', openPasswordModal);
 $('#reloadAdminBtn').addEventListener('click', (event) => loadAdminData(event.currentTarget).then(() => showToast('账号列表已刷新')).catch((error) => showToast(error.message)));
 $('#companyForm').addEventListener('submit', (event) => createCompany(event).catch((error) => showToast(error.message)));
+$('#regionForm').addEventListener('submit', (event) => createRegion(event).catch((error) => showToast(error.message)));
+$('#storeForm').addEventListener('submit', (event) => createStore(event).catch((error) => showToast(error.message)));
 $('#userForm').addEventListener('submit', (event) => createUser(event).catch((error) => showToast(error.message)));
 $('#userRoleSelect').addEventListener('change', renderLoginScopeOptions);
+$('#userCompanySelect').addEventListener('change', renderUserOrganizationFields);
+$('#userOrganizationLevelSelect').addEventListener('change', renderUserOrganizationFields);
+$('#userRegionSelect').addEventListener('change', renderUserOrganizationFields);
+$('#regionRows').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-action="region-status"]');
+  if (!button) return;
+  updateOrganizationStatus('regions', button.dataset.id, button.dataset.status, button).catch((error) => showToast(error.message));
+});
+$('#storeRows').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-action="store-status"]');
+  if (!button) return;
+  updateOrganizationStatus('stores', button.dataset.id, button.dataset.status, button).catch((error) => showToast(error.message));
+});
 $('#userRows').addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button || button.disabled) return;
@@ -1129,6 +1385,8 @@ $('#filtersForm').addEventListener('submit', (event) => {
   const submitButton = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
   loadRecords(submitButton, '查询中...').then(() => showToast('查询完成')).catch((error) => showToast(error.message));
 });
+$('#filterCompanySelect').addEventListener('change', renderFilterControls);
+$('#filterRegionSelect').addEventListener('change', renderFilterControls);
 $('#resetFiltersBtn').addEventListener('click', (event) => {
   runWithButton(event.currentTarget, '正在重置...', async () => {
     $('#filtersForm').reset();
@@ -1167,6 +1425,8 @@ $('#accessModal').addEventListener('click', (event) => {
   if (event.target.dataset.accessClose) closeAccessModal();
 });
 $('#accessForm').addEventListener('submit', (event) => submitUserAccess(event).catch((error) => showToast(error.message)));
+$('#accessOrganizationLevelSelect').addEventListener('change', () => renderAccessOrganizationFields());
+$('#accessRegionSelect').addEventListener('change', () => renderAccessOrganizationFields());
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closePhotoPreview();
   if (event.key === 'Enter' && !$('#loginPanel').classList.contains('hidden') && event.target.matches('#loginPhone, #loginPassword')) {

@@ -22,6 +22,8 @@ final class RecordController
             'dateTo' => (string) $request->input('dateTo', ''),
             'keyword' => (string) $request->input('keyword', ''),
             'companyId' => (string) $request->input('companyId', ''),
+            'regionId' => (string) $request->input('regionId', ''),
+            'storeId' => (string) $request->input('storeId', ''),
             'inspectorName' => (string) $request->input('inspectorName', ''),
             'deliveryPerson' => (string) $request->input('deliveryPerson', ''),
             'customerType' => (string) $request->input('customerType', ''),

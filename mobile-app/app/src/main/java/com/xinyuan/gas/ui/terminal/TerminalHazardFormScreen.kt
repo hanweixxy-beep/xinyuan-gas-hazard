@@ -59,7 +59,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -112,7 +111,6 @@ fun TerminalHazardFormScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
     val formScrollState = rememberScrollState()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
     val prefs = remember { context.getSharedPreferences("gas_prefs", android.content.Context.MODE_PRIVATE) }
@@ -151,12 +149,12 @@ fun TerminalHazardFormScreen(
     var deliveryPerson by remember { mutableStateOf("") }
     var remark by remember { mutableStateOf("") }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
-    var currentStep by rememberSaveable(editRecordId) { mutableStateOf(0) }
+    val effectiveInspectorName = cloudSettings.userName.ifBlank { inspectorName }
     val storefrontMissingFields = listOfNotNull(
         "用户名".takeIf { customerName.isBlank() },
         "电话".takeIf { customerPhone.isBlank() },
         "用户类型".takeIf { customerType.isBlank() },
-        "检查人".takeIf { inspectorName.isBlank() },
+        "检查人".takeIf { effectiveInspectorName.isBlank() },
         "配送员".takeIf { deliveryPerson.isBlank() }
     )
     val storefrontWatermarkReady = storefrontMissingFields.isEmpty()
@@ -223,6 +221,13 @@ fun TerminalHazardFormScreen(
     var currentPhotoTarget by remember { mutableStateOf("") }
     var currentPhotoUri by remember { mutableStateOf<Uri?>(null) }
 
+    fun sharedLocationWatermark(): String {
+        val latitude = locationLatitude ?: return ""
+        val longitude = locationLongitude ?: return ""
+        val accuracy = locationAccuracyMeters?.let { "，精度约${it.toInt()}米" }.orEmpty()
+        return String.format(Locale.CHINA, "定位坐标：纬度%.6f，经度%.6f%s", latitude, longitude, accuracy)
+    }
+
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val target = currentPhotoTarget
         val uri = currentPhotoUri
@@ -244,24 +249,35 @@ fun TerminalHazardFormScreen(
                             context,
                             uri,
                             customerAddress,
-                            cloudSettings.userName.ifBlank { inspectorName },
+                            effectiveInspectorName,
                             customerName,
                             customerPhone,
-                            locationSnapshot.watermarkText
+                            locationSnapshot.watermarkText,
+                            deliveryPerson
                         )
                         if (storefrontPhoto.isNotEmpty()) PhotoUtil.deletePhoto(context, storefrontPhoto)
                         storefrontPhoto = uri.toString()
+                        draftCreated = true
                     }
                     isResolvingLocation = false
                 }
             } else if (target == "cylinder_qr") {
-                PhotoUtil.addWatermark(context, uri, customerAddress, inspectorName, customerName, customerPhone)
+                PhotoUtil.addWatermark(
+                    context, uri, customerAddress, effectiveInspectorName, customerName, customerPhone,
+                    sharedLocationWatermark(), deliveryPerson
+                )
                 cylinderQrPhotos = cylinderQrPhotos + uri.toString()
             } else if (target == "cylinder") {
-                PhotoUtil.addWatermark(context, uri, customerAddress, inspectorName, customerName, customerPhone)
+                PhotoUtil.addWatermark(
+                    context, uri, customerAddress, effectiveInspectorName, customerName, customerPhone,
+                    sharedLocationWatermark(), deliveryPerson
+                )
                 cylinderPhotos = cylinderPhotos + uri.toString()
             } else if (target.isNotEmpty()) {
-                PhotoUtil.addWatermark(context, uri, customerAddress, inspectorName, customerName, customerPhone)
+                PhotoUtil.addWatermark(
+                    context, uri, customerAddress, effectiveInspectorName, customerName, customerPhone,
+                    sharedLocationWatermark(), deliveryPerson
+                )
                 hazardPhotos = hazardPhotos + (target to (hazardPhotos[target].orEmpty() + uri.toString()))
             }
         } else {
@@ -288,16 +304,19 @@ fun TerminalHazardFormScreen(
             Toast.makeText(context, "正在获取新定位，请稍候", Toast.LENGTH_SHORT).show()
             return
         }
-        if (target == "storefront" && !storefrontWatermarkReady) {
+        if (!storefrontWatermarkReady) {
             Toast.makeText(
                 context,
-                "请先填写${storefrontMissingFields.joinToString("、")}后再拍门头照片",
+                "请先填写${storefrontMissingFields.joinToString("、")}后再拍照生成完整水印",
                 Toast.LENGTH_SHORT
             ).show()
             return
         }
-        if (target != "storefront" && (storefrontPhoto.isBlank() || customerAddress.isBlank())) {
-            Toast.makeText(context, "请先拍摄门头照片获取用户地址", Toast.LENGTH_SHORT).show()
+        if (
+            target != "storefront" &&
+            (storefrontPhoto.isBlank() || customerAddress.isBlank() || locationLatitude == null || locationLongitude == null)
+        ) {
+            Toast.makeText(context, "请先拍摄门头照片获取用户地址和定位", Toast.LENGTH_SHORT).show()
             return
         }
         currentPhotoTarget = target
@@ -325,7 +344,7 @@ fun TerminalHazardFormScreen(
             locationLongitude = locationLongitude,
             locationAccuracyMeters = locationAccuracyMeters,
             locationCapturedAt = locationCapturedAt,
-            inspectorName = cloudSettings.userName.ifBlank { inspectorName },
+            inspectorName = effectiveInspectorName,
             inspectionDate = inspectionDate,
             checkResult = resultToSave,
             hazardItems = selectedHazards.joinToString(","),
@@ -382,38 +401,8 @@ fun TerminalHazardFormScreen(
             return
         }
 
-        prefs.edit().putString("last_inspector", inspectorName).apply()
+        prefs.edit().putString("last_inspector", effectiveInspectorName).apply()
         viewModel.saveTerminalRecord(currentRecord(resultToSave, rectificationDateToSave))
-    }
-
-    fun validateUserAndSiteStep(): Boolean {
-        if (!storefrontWatermarkReady) {
-            Toast.makeText(context, "请先填写${storefrontMissingFields.joinToString("、")}", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        if (storefrontPhoto.isBlank()) {
-            Toast.makeText(context, "请拍摄门头照片", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        if (customerAddress.isBlank()) {
-            Toast.makeText(context, "请重新拍摄门头照片获取用户地址", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        return true
-    }
-
-    fun validateHazardStep(): Boolean {
-        if (checkResult == TerminalHazardCatalog.RESULT_NOT_CLEARED) {
-            if (selectedHazards.isEmpty()) {
-                Toast.makeText(context, "请选择未清零隐患项目", Toast.LENGTH_SHORT).show()
-                return false
-            }
-            if (selectedHazards.any { hazardPhotos[it].orEmpty().isEmpty() }) {
-                Toast.makeText(context, "每个未清零隐患项目都需要拍照", Toast.LENGTH_SHORT).show()
-                return false
-            }
-        }
-        return true
     }
 
     LaunchedEffect(
@@ -462,11 +451,6 @@ fun TerminalHazardFormScreen(
         }
     }
 
-    LaunchedEffect(currentStep) {
-        focusManager.clearFocus(force = true)
-        formScrollState.scrollTo(0)
-    }
-
     Scaffold(
         modifier = modifier.imePadding(),
         topBar = {
@@ -477,24 +461,8 @@ fun TerminalHazardFormScreen(
         },
         bottomBar = {
             FormActionBar(
-                step = currentStep,
                 submitting = cloudSubmitInProgress || isResolvingLocation,
                 onCancel = onBack,
-                onPrevious = { currentStep = (currentStep - 1).coerceAtLeast(0) },
-                onNext = {
-                    val canContinue = when (currentStep) {
-                        0 -> validateUserAndSiteStep()
-                        1 -> validateHazardStep()
-                        else -> true
-                    }
-                    if (canContinue) {
-                        if (currentStep == 0) {
-                            draftCreated = true
-                            viewModel.saveTerminalDraft(currentRecord())
-                        }
-                        currentStep = (currentStep + 1).coerceAtMost(2)
-                    }
-                },
                 onSubmit = { validateAndSave() }
             )
         },
@@ -505,7 +473,6 @@ fun TerminalHazardFormScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            InspectionStepper(currentStep)
             CloudSaveBanner(cloudSaveState)
             Column(
                 modifier = Modifier
@@ -513,7 +480,8 @@ fun TerminalHazardFormScreen(
                     .verticalScroll(formScrollState)
                     .padding(horizontal = 18.dp)
             ) {
-                when (currentStep) {
+                listOf(0, 1, 2).forEach { section ->
+                when (section) {
                     0 -> {
                         FormIntroCard()
                         IOSGroupCard(title = "用户信息") {
@@ -837,6 +805,7 @@ fun TerminalHazardFormScreen(
                         }
                     }
                 }
+                }
                 Spacer(Modifier.height(28.dp))
             }
         }
@@ -939,86 +908,9 @@ private fun CloudSaveBanner(state: CloudSaveUiState) {
 }
 
 @Composable
-private fun InspectionStepper(currentStep: Int) {
-    val steps = listOf("用户与现场", "核查与照片", "确认提交")
-    Surface(
-        color = Color.White,
-        shadowElevation = 0.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, GraySeparator)
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                steps.forEachIndexed { index, _ ->
-                    val complete = index < currentStep
-                    val active = index == currentStep
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(26.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (index > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .fillMaxWidth(0.5f)
-                                    .height(2.dp)
-                                    .background(if (index <= currentStep) BrandGreen else GraySeparator)
-                            )
-                        }
-                        if (index < steps.lastIndex) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .fillMaxWidth(0.5f)
-                                    .height(2.dp)
-                                    .background(if (index < currentStep) BrandGreen else GraySeparator)
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp)
-                                .background(
-                                    if (complete || active) BrandGreen else GraySurface,
-                                    androidx.compose.foundation.shape.CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (complete) "✓" else "${index + 1}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (complete || active) Color.White else GrayTertiaryText
-                            )
-                        }
-                    }
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth()) {
-                steps.forEachIndexed { index, label ->
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = if (index == currentStep) FontWeight.SemiBold else FontWeight.Normal
-                        ),
-                        color = if (index <= currentStep) BrandGreen else GrayTertiaryText,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun FormActionBar(
-    step: Int,
     submitting: Boolean,
     onCancel: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
     onSubmit: () -> Unit
 ) {
     Surface(
@@ -1031,7 +923,7 @@ private fun FormActionBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedButton(
-                onClick = if (step == 0) onCancel else onPrevious,
+                onClick = onCancel,
                 enabled = !submitting,
                 modifier = Modifier
                     .weight(1.15f)
@@ -1041,14 +933,14 @@ private fun FormActionBar(
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandGreenStrong)
             ) {
                 Text(
-                    if (step == 0) "取消" else if (step == 2) "返回修改" else "上一步",
+                    "取消",
                     maxLines = 1,
                     softWrap = false,
                     style = MaterialTheme.typography.labelMedium
                 )
             }
             Button(
-                onClick = if (step == 2) onSubmit else onNext,
+                onClick = onSubmit,
                 enabled = !submitting,
                 modifier = Modifier
                     .weight(1.85f)
@@ -1064,7 +956,7 @@ private fun FormActionBar(
                     )
                     Text("  正在提交", style = MaterialTheme.typography.labelLarge)
                 } else {
-                    Text(if (step == 2) "提交记录" else "下一步", style = MaterialTheme.typography.labelLarge)
+                    Text("提交记录", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -1199,7 +1091,7 @@ private fun FormIntroCard() {
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "按三步完成现场登记，门头照片会自动写入用户地址与检查信息。",
+                text = "所有内容集中在当前页面，可按现场顺序填写；拍照前会自动检查水印信息。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = GraySecondaryText
             )

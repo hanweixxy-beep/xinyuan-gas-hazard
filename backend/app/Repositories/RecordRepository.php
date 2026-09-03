@@ -17,9 +17,12 @@ final class RecordRepository
     public function listForUser(array $user, array $filters = [], int $limit = 1000): array
     {
         [$where, $params] = $this->listConditions($user, $filters);
-        $sql = "SELECT r.*, c.name AS company_name, u.name AS creator_name
+        $sql = "SELECT r.*, c.name AS company_name, rg.name AS region_name, st.name AS store_name,
+                       u.name AS creator_name
                 FROM inspection_records r
                 INNER JOIN companies c ON c.id = r.company_id
+                LEFT JOIN regions rg ON rg.id = r.region_id
+                LEFT JOIN stores st ON st.id = r.store_id
                 INNER JOIN users u ON u.id = r.creator_id
                 WHERE {$where}
                 ORDER BY r.inspection_date DESC, r.id DESC
@@ -39,9 +42,12 @@ final class RecordRepository
         [$where, $params] = $this->scopeCondition($user, 'r');
         $params['id'] = $id;
         $stmt = $this->pdo->prepare(
-            "SELECT r.*, c.name AS company_name, u.name AS creator_name
+            "SELECT r.*, c.name AS company_name, rg.name AS region_name, st.name AS store_name,
+                    u.name AS creator_name
              FROM inspection_records r
              INNER JOIN companies c ON c.id = r.company_id
+             LEFT JOIN regions rg ON rg.id = r.region_id
+             LEFT JOIN stores st ON st.id = r.store_id
              INNER JOIN users u ON u.id = r.creator_id
              WHERE r.id = :id AND r.record_state = 'submitted' AND {$where}
              LIMIT 1"
@@ -82,12 +88,12 @@ final class RecordRepository
 
             $stmt = $this->pdo->prepare(
                 "INSERT INTO inspection_records
-                 (client_uuid, company_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
+                 (client_uuid, company_id, region_id, store_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
                   inspector_name, delivery_person, inspection_date, check_result, status, remark,
                   location_lat, location_lng, location_address, location_accuracy_meters, location_captured_at,
                   rectification_date, rectification_note, rectification_person)
                  VALUES
-                 (:client_uuid, :company_id, :creator_id, 'submitted', :customer_name, :customer_phone, :customer_type, :customer_address,
+                 (:client_uuid, :company_id, :region_id, :store_id, :creator_id, 'submitted', :customer_name, :customer_phone, :customer_type, :customer_address,
                   :inspector_name, :delivery_person, :inspection_date, :check_result, :status, :remark,
                   :location_lat, :location_lng, :location_address, :location_accuracy_meters, :location_captured_at,
                   :rectification_date, :rectification_note, :rectification_person)"
@@ -95,6 +101,8 @@ final class RecordRepository
             $stmt->execute([
                 'client_uuid' => $clientUuid,
                 'company_id' => $companyId,
+                'region_id' => !empty($user['region_id']) ? (int) $user['region_id'] : null,
+                'store_id' => !empty($user['store_id']) ? (int) $user['store_id'] : null,
                 'creator_id' => (int) $user['id'],
                 'customer_name' => $payload['customerName'],
                 'customer_phone' => $payload['customerPhone'],
@@ -167,6 +175,8 @@ final class RecordRepository
             $values = [
                 'client_uuid' => $clientUuid,
                 'company_id' => $this->resolveCompanyId($user, $payload),
+                'region_id' => !empty($user['region_id']) ? (int) $user['region_id'] : null,
+                'store_id' => !empty($user['store_id']) ? (int) $user['store_id'] : null,
                 'creator_id' => (int) $user['id'],
                 'customer_name' => $payload['customerName'],
                 'customer_phone' => $payload['customerPhone'],
@@ -194,6 +204,8 @@ final class RecordRepository
                 $stmt = $this->pdo->prepare(
                     "UPDATE inspection_records
                      SET company_id = :company_id,
+                         region_id = :region_id,
+                         store_id = :store_id,
                          customer_name = :customer_name,
                          customer_phone = :customer_phone,
                          customer_type = :customer_type,
@@ -219,12 +231,12 @@ final class RecordRepository
             } else {
                 $stmt = $this->pdo->prepare(
                     "INSERT INTO inspection_records
-                     (client_uuid, company_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
+                     (client_uuid, company_id, region_id, store_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
                       inspector_name, delivery_person, inspection_date, check_result, status, remark,
                       location_lat, location_lng, location_address, location_accuracy_meters, location_captured_at,
                       rectification_date, rectification_note, rectification_person)
                      VALUES
-                     (:client_uuid, :company_id, :creator_id, 'draft', :customer_name, :customer_phone, :customer_type, :customer_address,
+                     (:client_uuid, :company_id, :region_id, :store_id, :creator_id, 'draft', :customer_name, :customer_phone, :customer_type, :customer_address,
                       :inspector_name, :delivery_person, :inspection_date, :check_result, :status, :remark,
                       :location_lat, :location_lng, :location_address, :location_accuracy_meters, :location_captured_at,
                       :rectification_date, :rectification_note, :rectification_person)"
@@ -351,6 +363,18 @@ final class RecordRepository
         if ($companyId > 0 && $user['role'] === 'hq_admin') {
             $conditions[] = 'r.company_id = :filter_company_id';
             $params['filter_company_id'] = $companyId;
+        }
+
+        $regionId = (int) ($filters['regionId'] ?? 0);
+        if ($regionId > 0) {
+            $conditions[] = 'r.region_id = :filter_region_id';
+            $params['filter_region_id'] = $regionId;
+        }
+
+        $storeId = (int) ($filters['storeId'] ?? 0);
+        if ($storeId > 0) {
+            $conditions[] = 'r.store_id = :filter_store_id';
+            $params['filter_store_id'] = $storeId;
         }
 
         $textFilters = [

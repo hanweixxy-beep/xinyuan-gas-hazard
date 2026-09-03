@@ -14,6 +14,7 @@ use App\Http\Controllers\FileController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\RecordController;
 use App\Repositories\CompanyRepository;
+use App\Repositories\OrganizationRepository;
 use App\Repositories\RecordRepository;
 use App\Repositories\UserRepository;
 use App\Services\AuthService;
@@ -32,10 +33,11 @@ $pdo = (new Database($config))->pdo();
 
 $userRepository = new UserRepository($pdo);
 $companyRepository = new CompanyRepository($pdo);
+$organizationRepository = new OrganizationRepository($pdo);
 $recordRepository = new RecordRepository($pdo);
 
 $authService = new AuthService($userRepository, $config);
-$adminService = new AdminService($companyRepository, $userRepository);
+$adminService = new AdminService($companyRepository, $organizationRepository, $userRepository);
 $recordService = new RecordService($recordRepository);
 $exportService = new ExportService((string) $config->get('upload_root'));
 $fileStorage = new FileStorageService($config);
@@ -57,6 +59,11 @@ $router->add('GET', '/api/auth/me', fn (Request $request) => $authController->me
 $router->add('POST', '/api/auth/change-password', fn (Request $request) => $authController->changePassword($request));
 $router->add('GET', '/api/admin/companies', fn (Request $request) => $adminController->companies($request));
 $router->add('POST', '/api/admin/companies', fn (Request $request) => $adminController->createCompany($request));
+$router->add('GET', '/api/admin/organization', fn (Request $request) => $adminController->organization($request));
+$router->add('POST', '/api/admin/regions', fn (Request $request) => $adminController->createRegion($request));
+$router->add('POST', '/api/admin/regions/{id}/status', fn (Request $request, array $params) => $adminController->updateRegionStatus($request, $params));
+$router->add('POST', '/api/admin/stores', fn (Request $request) => $adminController->createStore($request));
+$router->add('POST', '/api/admin/stores/{id}/status', fn (Request $request, array $params) => $adminController->updateStoreStatus($request, $params));
 $router->add('GET', '/api/admin/users', fn (Request $request) => $adminController->users($request));
 $router->add('POST', '/api/admin/users', fn (Request $request) => $adminController->createUser($request));
 $router->add('POST', '/api/admin/users/{id}/status', fn (Request $request, array $params) => $adminController->updateUserStatus($request, $params));

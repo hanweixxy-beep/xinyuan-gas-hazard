@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Core\HttpException;
 use App\Domain\UserAccess;
 use App\Repositories\CompanyRepository;
+use App\Repositories\OrganizationRepository;
 use App\Repositories\UserRepository;
 
 final class AdminService
@@ -14,8 +15,88 @@ final class AdminService
 
     public function __construct(
         private CompanyRepository $companies,
+        private OrganizationRepository $organization,
         private UserRepository $users
     ) {
+    }
+
+    /** @param array<string, mixed> $actor @return array{regions:list<array<string,mixed>>,stores:list<array<string,mixed>>} */
+    public function organization(array $actor): array
+    {
+        $this->requireManager($actor);
+        $companyId = $actor['role'] === 'hq_admin' ? null : (int) $actor['company_id'];
+        return [
+            'regions' => $this->organization->listRegions($companyId),
+            'stores' => $this->organization->listStores($companyId),
+        ];
+    }
+
+    /** @param array<string, mixed> $actor @param array<string, mixed> $payload */
+    public function createRegion(array $actor, array $payload): int
+    {
+        $this->requireManager($actor);
+        $companyId = $this->resolveCompanyId($actor, $payload);
+        $name = trim((string) ($payload['name'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 80) {
+            throw new HttpException(422, '片区名称不能为空，且不能超过 80 个字符。');
+        }
+        if ($this->organization->regionNameExists($companyId, $name)) {
+            throw new HttpException(422, '该公司已存在同名片区。');
+        }
+        return $this->organization->createRegion($companyId, $name);
+    }
+
+    /** @param array<string, mixed> $actor @param array<string, mixed> $payload */
+    public function createStore(array $actor, array $payload): int
+    {
+        $this->requireManager($actor);
+        $regionId = (int) ($payload['regionId'] ?? 0);
+        $region = $this->organization->findRegion($regionId);
+        if (!$region || $region['status'] !== 'active') {
+            throw new HttpException(422, '请选择有效且已启用的片区。');
+        }
+        $this->assertCompanyAccessible($actor, (int) $region['company_id']);
+        $name = trim((string) ($payload['name'] ?? ''));
+        $address = trim((string) ($payload['address'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 120) {
+            throw new HttpException(422, '门店名称不能为空，且不能超过 120 个字符。');
+        }
+        if (mb_strlen($address) > 255) {
+            throw new HttpException(422, '门店地址不能超过 255 个字符。');
+        }
+        if ($this->organization->storeNameExists($regionId, $name)) {
+            throw new HttpException(422, '该片区已存在同名门店。');
+        }
+        return $this->organization->createStore((int) $region['company_id'], $regionId, $name, $address);
+    }
+
+    /** @param array<string, mixed> $actor */
+    public function updateRegionStatus(array $actor, int $id, string $status): void
+    {
+        $this->requireManager($actor);
+        $this->assertStatus($status);
+        $region = $this->organization->findRegion($id);
+        if (!$region) {
+            throw new HttpException(404, '片区不存在。');
+        }
+        $this->assertCompanyAccessible($actor, (int) $region['company_id']);
+        $this->organization->updateRegionStatus($id, $status);
+    }
+
+    /** @param array<string, mixed> $actor */
+    public function updateStoreStatus(array $actor, int $id, string $status): void
+    {
+        $this->requireManager($actor);
+        $this->assertStatus($status);
+        $store = $this->organization->findStore($id);
+        if (!$store) {
+            throw new HttpException(404, '门店不存在。');
+        }
+        $this->assertCompanyAccessible($actor, (int) $store['company_id']);
+        if ($status === 'active' && $store['region_status'] !== 'active') {
+            throw new HttpException(422, '请先启用门店所属片区。');
+        }
+        $this->organization->updateStoreStatus($id, $status);
     }
 
     /** @param array<string, mixed> $actor @return list<array<string, mixed>> */
@@ -89,9 +170,12 @@ final class AdminService
         }
 
         $this->assertRoleAssignable($actor, $role);
+        [$regionId, $storeId] = $this->resolveOrganizationAssignment($companyId, $role, $payload);
 
         return $this->users->createUser([
             'company_id' => $companyId,
+            'region_id' => $regionId,
+            'store_id' => $storeId,
             'name' => $name,
             'phone' => $phone,
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
@@ -118,7 +202,24 @@ final class AdminService
         }
 
         $canViewCompanyRecords = $role === 'inspector' && !empty($payload['canViewCompanyRecords']);
-        $this->users->updateAccess($id, $loginScope, $canViewCompanyRecords);
+        $updateOrganization = array_key_exists('regionId', $payload) || array_key_exists('storeId', $payload);
+        $regionId = null;
+        $storeId = null;
+        if ($updateOrganization) {
+            [$regionId, $storeId] = $this->resolveOrganizationAssignment(
+                (int) $target['company_id'],
+                $role,
+                $payload
+            );
+        }
+        $this->users->updateAccess(
+            $id,
+            $loginScope,
+            $canViewCompanyRecords,
+            $regionId,
+            $storeId,
+            $updateOrganization
+        );
         $this->users->deleteSessionsForUser($id);
     }
 
@@ -172,6 +273,50 @@ final class AdminService
         if ($actor['role'] !== 'hq_admin') {
             throw new HttpException(403, '只有总部管理员可以执行此操作。');
         }
+    }
+
+    private function assertStatus(string $status): void
+    {
+        if (!in_array($status, self::STATUSES, true)) {
+            throw new HttpException(422, '状态不正确。');
+        }
+    }
+
+    /** @param array<string, mixed> $actor */
+    private function assertCompanyAccessible(array $actor, int $companyId): void
+    {
+        if ($actor['role'] !== 'hq_admin' && (int) $actor['company_id'] !== $companyId) {
+            throw new HttpException(403, '不能管理其他公司的组织。');
+        }
+    }
+
+    /** @param array<string, mixed> $payload @return array{0:?int,1:?int} */
+    private function resolveOrganizationAssignment(int $companyId, string $role, array $payload): array
+    {
+        if ($role === 'hq_admin') {
+            return [null, null];
+        }
+
+        $storeId = (int) ($payload['storeId'] ?? 0);
+        if ($storeId > 0) {
+            $store = $this->organization->findStore($storeId);
+            if (
+                !$store ||
+                (int) $store['company_id'] !== $companyId ||
+                $store['status'] !== 'active' ||
+                $store['region_status'] !== 'active'
+            ) {
+                throw new HttpException(422, '请选择本公司已启用的门店。');
+            }
+            return [(int) $store['region_id'], $storeId];
+        }
+
+        $regionId = (int) ($payload['regionId'] ?? 0);
+        $region = $this->organization->findRegion($regionId);
+        if (!$region || (int) $region['company_id'] !== $companyId || $region['status'] !== 'active') {
+            throw new HttpException(422, '请选择本公司已启用的片区或门店。');
+        }
+        return [$regionId, null];
     }
 
     /** @param array<string, mixed> $actor @param array<string, mixed> $payload */

@@ -146,19 +146,10 @@
         <span></span>
       </header>
 
-      <nav id="formStepper" class="form-stepper" aria-label="登记步骤">
-        <button type="button" data-step-target="user"><b>1</b><span>用户与现场</span></button>
-        <i></i>
-        <button type="button" data-step-target="hazard"><b>2</b><span>核查与照片</span></button>
-        <i></i>
-        <button type="button" data-step-target="review"><b>3</b><span>确认提交</span></button>
-      </nav>
-      <p id="stepStatus" class="sr-only">1/3 用户与现场</p>
-
       <section class="form-card intro-card form-step" data-step="user">
         <p class="card-kicker">新增终端核查</p>
-        <h2>填写完整信息后开始拍照</h2>
-        <p>拍摄门头照片时获取一次高精度定位，照片水印会写入检查信息、地址、时间和定位坐标。</p>
+        <h2>按现场情况自由填写</h2>
+        <p>所有内容集中在当前页面。拍照前系统会检查水印所需信息，门头定位供本次全部照片统一使用。</p>
       </section>
 
       <section class="form-card form-step" data-step="user">
@@ -247,9 +238,7 @@
 
       <div class="app-action-bar">
         <button id="clearFormBtn" class="secondary" type="button">取消</button>
-        <button id="stepPrevBtn" class="secondary hidden" type="button">上一步</button>
-        <button id="stepNextBtn" class="primary" type="button">下一步</button>
-        <button id="submitRecordBtn" class="primary hidden" type="submit">提交记录</button>
+        <button id="submitRecordBtn" class="primary" type="submit">提交记录</button>
       </div>
     </form>
 
@@ -312,6 +301,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260827-single-session"></script>
+  <script type="module" src="./app.js?v=20260902-v2.1.0-r2"></script>
 </body>
 </html>
