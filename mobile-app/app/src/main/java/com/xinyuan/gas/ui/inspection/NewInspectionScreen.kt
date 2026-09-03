@@ -57,6 +57,7 @@ fun NewInspectionScreen(
     var inspectionDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var photoUris by remember { mutableStateOf(listOf<String>()) }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
+    var photoLocationSnapshot by remember { mutableStateOf<PhotoUtil.LocationSnapshot?>(null) }
 
     var hazardAlarm by remember { mutableStateOf("") }
     var hazardPipeline by remember { mutableStateOf("") }
@@ -157,7 +158,8 @@ fun NewInspectionScreen(
         if (success && currentPhotoUri != null) {
             val uri = currentPhotoUri!!
             coroutineScope.launch {
-                val locationSnapshot = PhotoUtil.getLocationSnapshot(context)
+                val locationSnapshot = photoLocationSnapshot
+                    ?: PhotoUtil.getLocationSnapshot(context).also { photoLocationSnapshot = it }
                 if (customerAddress.isBlank() && locationSnapshot.address.isNotBlank()) {
                     customerAddress = locationSnapshot.address
                 }

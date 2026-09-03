@@ -308,7 +308,7 @@ fun TerminalHazardFormScreen(
             Toast.makeText(
                 context,
                 "请先填写${storefrontMissingFields.joinToString("、")}后再拍照生成完整水印",
-                Toast.LENGTH_SHORT
+                Toast.LENGTH_LONG
             ).show()
             return
         }
@@ -540,7 +540,7 @@ fun TerminalHazardFormScreen(
                                 title = "门头照片",
                                 photoUri = storefrontPhoto,
                                 required = true,
-                                enabled = storefrontWatermarkReady && !isResolvingLocation,
+                                enabled = !isResolvingLocation,
                                 helperText = if (isResolvingLocation) {
                                     "正在主动获取新的高精度定位…"
                                 } else if (storefrontWatermarkReady) {

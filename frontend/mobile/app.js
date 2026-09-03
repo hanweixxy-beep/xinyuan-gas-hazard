@@ -1534,9 +1534,9 @@ function bindEvents() {
       return;
     }
     const tile = event.target.closest('.photo-tile');
-    const fileInput = tile?.querySelector('input[type="file"]');
-    if (fileInput?.name === 'storefront') {
-      const contextError = validatePhotoContext('storefront');
+    const fileInput = event.target.closest('input[type="file"]') || tile?.querySelector('input[type="file"]');
+    if (fileInput?.name) {
+      const contextError = validatePhotoContext(fileInput.name);
       if (contextError) {
         event.preventDefault();
         event.stopPropagation();
