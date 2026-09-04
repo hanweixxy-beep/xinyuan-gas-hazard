@@ -243,7 +243,7 @@ tbody tr:hover { background: rgba(234,240,244,.42); }
 .desktop-filter label { margin: 0; }
 .desktop-filter button { min-height: 44px; }
 .records-table { min-width: 1050px; }
-.records-table th:nth-child(5), .records-table td:nth-child(5) { min-width: 260px; }
+.records-table th:nth-child(6), .records-table td:nth-child(6) { min-width: 260px; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 0 0; color: var(--secondary); font-size: 11px; }
 .pagination p { margin: 0; }
 .pagination-actions { display: flex; align-items: center; gap: 7px; }
@@ -333,7 +333,7 @@ tbody tr:hover { background: rgba(234,240,244,.42); }
 }
 
 .desktop-filter.full-filter {
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
 }
 
 .desktop-filter.full-filter .wide-field {
@@ -342,6 +342,18 @@ tbody tr:hover { background: rgba(234,240,244,.42); }
 
 .desktop-filter.full-filter button {
   align-self: end;
+}
+
+.desktop-filter input,
+.desktop-filter select {
+  border-color: #cfc6b8;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(52, 46, 37, .04);
+}
+
+.desktop-filter input:hover,
+.desktop-filter select:hover {
+  border-color: #b9ae9f;
 }
 
 .link-button {
@@ -565,6 +577,6 @@ tbody tr:hover { background: rgba(234,240,244,.42); }
 
 @media (max-width: 1240px) {
   .desktop-filter.full-filter {
-    grid-template-columns: repeat(3, minmax(150px, 1fr));
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
   }
 }

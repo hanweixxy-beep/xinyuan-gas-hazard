@@ -110,6 +110,15 @@ if (!$overrideRecord
     throw new RuntimeException('A cross-region inspection did not retain its selected organization.');
 }
 
+$filteredRecords = $recordService->list($user, [
+    'regionId' => $otherRegionId,
+    'storeId' => $otherStoreId,
+]);
+$filteredIds = array_map(static fn (array $record): int => (int) $record['id'], $filteredRecords);
+if (!in_array($overrideRecordId, $filteredIds, true) || in_array($recordId, $filteredIds, true)) {
+    throw new RuntimeException('Region and store filters did not isolate the selected inspection records.');
+}
+
 $mismatchRejected = false;
 try {
     $recordService->create($user, array_merge($overridePayload, [

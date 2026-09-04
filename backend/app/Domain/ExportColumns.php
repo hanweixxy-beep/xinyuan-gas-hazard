@@ -36,6 +36,8 @@ final class ExportColumns
             ['key' => 'rectificationNote', 'label' => '整改情况'],
             ['key' => 'rectificationPerson', 'label' => '整改人'],
             ['key' => 'rectificationPhoto', 'label' => '整改照片'],
+            ['key' => 'regionName', 'label' => '片区'],
+            ['key' => 'storeName', 'label' => '门店'],
         ];
     }
 }

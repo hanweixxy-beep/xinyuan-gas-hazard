@@ -9,6 +9,7 @@ const state = {
   regions: [],
   stores: [],
   users: [],
+  organizationFiltersLoaded: false,
   accessUserId: 0,
   currentModule: 'home',
   recordPage: 1,
@@ -146,21 +147,37 @@ function renderFilterControls() {
     storeSelect.value = storeSelected;
   }
 
-  const showOrganization = isManager() && (availableRegions.length > 0 || state.regions.length > 0);
-  regionField.classList.toggle('hidden', !showOrganization);
-  storeField.classList.toggle('hidden', !showOrganization);
+  regionField.classList.remove('hidden');
+  storeField.classList.remove('hidden');
 }
 
 async function ensureFilterLookups() {
   renderFilterControls();
-  if (!isManager() || state.regions.length > 0) return;
+  if (state.organizationFiltersLoaded) return;
 
-  const requests = [api('/admin/organization')];
-  if (isHqAdmin() && state.companies.length === 0) requests.push(api('/admin/companies'));
-  const [organization, companies] = await Promise.all(requests);
-  state.regions = organization.regions || [];
-  state.stores = organization.stores || [];
-  if (companies) state.companies = companies.companies || [];
+  if (isManager()) {
+    const requests = [api('/admin/organization')];
+    if (isHqAdmin() && state.companies.length === 0) requests.push(api('/admin/companies'));
+    const [organization, companies] = await Promise.all(requests);
+    state.regions = organization.regions || [];
+    state.stores = organization.stores || [];
+    if (companies) state.companies = companies.companies || [];
+  } else {
+    const organization = await api('/organization-options');
+    const companyId = Number(organization.companyId || state.user?.companyId || 0);
+    state.regions = (organization.regions || []).map((region) => ({
+      ...region,
+      company_id: companyId,
+      status: 'active'
+    }));
+    state.stores = (organization.stores || []).map((store) => ({
+      ...store,
+      company_id: companyId,
+      region_id: Number(store.regionId || 0),
+      status: 'active'
+    }));
+  }
+  state.organizationFiltersLoaded = true;
   renderFilterControls();
 }
 
@@ -238,6 +255,7 @@ function logout() {
   state.regions = [];
   state.stores = [];
   state.users = [];
+  state.organizationFiltersLoaded = false;
   state.currentModule = 'home';
   localStorage.removeItem(tokenKey);
   $('#dashboard').classList.add('hidden');
@@ -494,6 +512,7 @@ async function loadAdminData(button = null) {
     state.companies = companiesData.companies || [];
     state.regions = organizationData.regions || [];
     state.stores = organizationData.stores || [];
+    state.organizationFiltersLoaded = true;
     state.users = usersData.users || [];
     renderFilterControls();
     renderAdminPanel();

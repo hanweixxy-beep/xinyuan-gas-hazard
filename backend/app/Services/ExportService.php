@@ -134,6 +134,8 @@ final class ExportService
                 'rectificationNote' => (string) ($record['rectification_note'] ?? ''),
                 'rectificationPerson' => (string) ($record['rectification_person'] ?? ''),
                 'rectificationPhoto' => $rectificationPhotos[$line] ?? '',
+                'regionName' => (string) ($record['region_name'] ?? ''),
+                'storeName' => (string) ($record['store_name'] ?? ''),
             ];
 
             foreach (self::CATEGORY_COLUMNS as $category => $columns) {
