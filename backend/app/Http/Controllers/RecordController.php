@@ -34,6 +34,13 @@ final class RecordController
         ])];
     }
 
+    /** @return array<string, mixed> */
+    public function organizationOptions(Request $request): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        return $this->records->organizationOptions($user);
+    }
+
     /** @param array<string, string> $params @return array<string, mixed> */
     public function show(Request $request, array $params): array
     {

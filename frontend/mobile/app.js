@@ -40,6 +40,8 @@ const state = {
   formStep: 'user',
   records: [],
   currentRecord: null,
+  organizationOptions: { regions: [], stores: [], loaded: false },
+  recordOrganization: { regionId: 0, regionName: '', storeId: 0, storeName: '', overridden: false },
   photos: {},
   clientUuid: localStorage.getItem(cloudDraftKey) || '',
   cloudDraftSaved: false
@@ -242,6 +244,7 @@ function renderReviewSummary() {
     ['用户', `${form.customerName || '-'} / ${form.customerPhone || '-'}`],
     ['地址', form.customerAddress || '-'],
     ['检查', `${form.inspectionDate || '-'} / ${form.inspectorName || '-'} / ${form.deliveryPerson || '-'}`],
+    ['检查归属', `${state.recordOrganization.regionName || '-'}${state.recordOrganization.storeName ? ` / ${state.recordOrganization.storeName}` : ''}`],
     ['结果', form.checkResult || '-'],
     ['隐患', form.checkResult === RESULT_NOT_CLEARED ? (hazardNames || '未选择') : '隐患已清零'],
     ['气源异常', gasSourceSelected.length ? gasSourceSelected.join('、') : '无'],
@@ -441,6 +444,113 @@ function roleLabel(role) {
   return labels[role] || role || '-';
 }
 
+function resetRecordOrganization() {
+  const defaults = state.organizationOptions.default || state.user || {};
+  state.recordOrganization = {
+    regionId: Number(defaults.regionId || 0),
+    regionName: String(defaults.regionName || ''),
+    storeId: Number(defaults.storeId || 0),
+    storeName: String(defaults.storeName || ''),
+    overridden: false
+  };
+  renderInspectionOrganization();
+}
+
+function renderInspectionOrganization() {
+  const summary = $('#inspectionOrganizationSummary');
+  const hint = $('#inspectionOrganizationHint');
+  if (!summary || !hint) return;
+  const organization = state.recordOrganization;
+  summary.textContent = organization.regionName
+    ? `${organization.regionName}${organization.storeName ? ` · ${organization.storeName}` : ''}`
+    : '公司级（未分配片区）';
+  hint.textContent = !organization.regionId
+    ? '尚未配置账号归属，当前按公司级记录'
+    : (organization.overridden ? '仅本条记录使用此归属' : '已自动使用账号默认归属');
+  hint.classList.toggle('changed', organization.overridden);
+}
+
+async function loadOrganizationOptions(force = false) {
+  if (state.organizationOptions.loaded && !force) return state.organizationOptions;
+  const data = await api('/organization-options');
+  const wasOverridden = state.recordOrganization.overridden;
+  state.organizationOptions = {
+    regions: Array.isArray(data.regions) ? data.regions : [],
+    stores: Array.isArray(data.stores) ? data.stores : [],
+    default: data.default || state.user || {},
+    loaded: true
+  };
+  if (!wasOverridden) resetRecordOrganization();
+  return state.organizationOptions;
+}
+
+function renderOrganizationStoreOptions() {
+  const regionId = Number($('#inspectionRegionSelect').value || 0);
+  const currentStoreId = Number($('#inspectionStoreSelect').value || state.recordOrganization.storeId || 0);
+  const stores = state.organizationOptions.stores.filter((store) => Number(store.regionId) === regionId);
+  $('#inspectionStoreSelect').innerHTML = [
+    '<option value="">片区级（不指定门店）</option>',
+    ...stores.map((store) => `<option value="${Number(store.id)}">${escapeHtml(store.name)}</option>`)
+  ].join('');
+  if (stores.some((store) => Number(store.id) === currentStoreId)) {
+    $('#inspectionStoreSelect').value = String(currentStoreId);
+  }
+}
+
+async function openOrganizationSheet() {
+  try {
+    await loadOrganizationOptions();
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
+  if (state.organizationOptions.regions.length === 0) {
+    showToast('后台尚未配置片区和门店，当前按公司级归属登记。');
+    return;
+  }
+  $('#inspectionRegionSelect').innerHTML = [
+    '<option value="">请选择片区</option>',
+    ...state.organizationOptions.regions.map((region) => `<option value="${Number(region.id)}">${escapeHtml(region.name)}</option>`)
+  ].join('');
+  $('#inspectionRegionSelect').value = state.recordOrganization.regionId
+    ? String(state.recordOrganization.regionId)
+    : '';
+  renderOrganizationStoreOptions();
+  $('#inspectionStoreSelect').value = state.recordOrganization.storeId
+    ? String(state.recordOrganization.storeId)
+    : '';
+  $('#organizationSheet').classList.remove('hidden');
+  $('#organizationSheet').setAttribute('aria-hidden', 'false');
+}
+
+function closeOrganizationSheet() {
+  $('#organizationSheet').classList.add('hidden');
+  $('#organizationSheet').setAttribute('aria-hidden', 'true');
+}
+
+function applyOrganizationSelection() {
+  const regionId = Number($('#inspectionRegionSelect').value || 0);
+  if (!regionId) {
+    showToast('请选择本次检查所属片区。');
+    return;
+  }
+  const storeId = Number($('#inspectionStoreSelect').value || 0);
+  const region = state.organizationOptions.regions.find((item) => Number(item.id) === regionId);
+  const store = state.organizationOptions.stores.find((item) => Number(item.id) === storeId);
+  const defaults = state.organizationOptions.default || state.user || {};
+  state.recordOrganization = {
+    regionId,
+    regionName: region?.name || '',
+    storeId,
+    storeName: store?.name || '',
+    overridden: regionId !== Number(defaults.regionId || 0) || storeId !== Number(defaults.storeId || 0)
+  };
+  renderInspectionOrganization();
+  renderReviewSummary();
+  closeOrganizationSheet();
+  showToast('已变更本次检查归属。');
+}
+
 function statusText(record) {
   if (record.status === 'pending') return '待整改';
   if (record.status === 'rectified') return '已整改';
@@ -539,6 +649,8 @@ function showInspectionForm() {
   if (state.user?.name) {
     $('[name="inspectorName"]').value = state.user.name;
   }
+  if (!state.recordOrganization.regionId) resetRecordOrganization();
+  loadOrganizationOptions().catch((error) => showToast(error.message));
   if (!formStepKeys.includes(state.formStep)) {
     state.formStep = 'user';
   }
@@ -662,6 +774,7 @@ function renderMobileRecordDetail(record) {
     ['地址', record.customer_address],
     ['检查日期', record.inspection_date],
     ['检查人', record.inspector_name],
+    ['检查归属', [record.region_name, record.store_name].filter(Boolean).join(' / ') || '公司级'],
     ['配送员', record.delivery_person],
     ['结果', record.check_result],
     ['备注', record.remark],
@@ -739,6 +852,8 @@ async function login() {
   });
   state.token = data.token;
   state.user = data.user;
+  state.organizationOptions = { regions: [], stores: [], loaded: false };
+  resetRecordOrganization();
   localStorage.setItem(tokenKey, state.token);
   showMenu();
   showToast('登录成功');
@@ -747,6 +862,8 @@ async function login() {
 async function loadSession() {
   const data = await api('/auth/me');
   state.user = data.user;
+  state.organizationOptions = { regions: [], stores: [], loaded: false };
+  resetRecordOrganization();
 }
 
 async function restoreLoginState() {
@@ -771,6 +888,7 @@ function logout(confirmFirst = true) {
   state.location = null;
   state.records = [];
   state.currentRecord = null;
+  state.organizationOptions = { regions: [], stores: [], loaded: false };
   state.clientUuid = '';
   state.cloudDraftSaved = false;
   localStorage.removeItem(tokenKey);
@@ -1313,6 +1431,8 @@ function buildRecordPayload(form, hazardCodes, gasSourceSelected, photos) {
   return {
     clientUuid: ensureClientUuid(),
     ...form,
+    regionId: state.recordOrganization.regionId || null,
+    storeId: state.recordOrganization.storeId || null,
     hazardItems: hazardCodes,
     gasSourceIssues: gasSourceSelected,
     photos,
@@ -1425,6 +1545,7 @@ function clearForm(showMessage = true) {
   state.location = null;
   state.clientUuid = '';
   state.cloudDraftSaved = false;
+  resetRecordOrganization();
   localStorage.removeItem(cloudDraftKey);
   clearAllPhotos();
   setLocationSurface('pending', '等待获取用户地址', '拍摄门头照片时获取一次高精度定位，后续照片统一复用。');
@@ -1463,6 +1584,13 @@ function bindEvents() {
   });
   $('#logoutBtn').addEventListener('click', () => logout(true));
   $('#backMenuBtn').addEventListener('click', showMenu);
+  $('#organizationChangeBtn').addEventListener('click', openOrganizationSheet);
+  $('#organizationCloseBtn').addEventListener('click', closeOrganizationSheet);
+  $('#organizationSheet').addEventListener('click', (event) => {
+    if (event.target.dataset.organizationClose) closeOrganizationSheet();
+  });
+  $('#inspectionRegionSelect').addEventListener('change', renderOrganizationStoreOptions);
+  $('#organizationApplyBtn').addEventListener('click', applyOrganizationSelection);
   $('#terminalFeatureBtn').addEventListener('click', showInspectionForm);
   $('#recordsFeatureBtn').addEventListener('click', () => showRecordsPanel().catch((error) => showToast(error.message)));
   $('#homeAvatar').addEventListener('click', showProfile);

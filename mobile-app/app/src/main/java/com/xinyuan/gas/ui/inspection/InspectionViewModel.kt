@@ -17,6 +17,7 @@ import com.xinyuan.gas.data.repository.InspectionRepository
 import com.xinyuan.gas.data.repository.TerminalHazardRepository
 import com.xinyuan.gas.data.sync.CloudApiException
 import com.xinyuan.gas.data.sync.CloudRecordDetail
+import com.xinyuan.gas.data.sync.CloudOrganizationOptions
 import com.xinyuan.gas.data.sync.CloudSessionStore
 import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudSettings
@@ -79,6 +80,12 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _cloudRecords = MutableStateFlow<List<CloudRecordSummary>>(emptyList())
     val cloudRecords: StateFlow<List<CloudRecordSummary>> = _cloudRecords.asStateFlow()
+
+    private val _organizationOptions = MutableStateFlow(CloudOrganizationOptions())
+    val organizationOptions: StateFlow<CloudOrganizationOptions> = _organizationOptions.asStateFlow()
+
+    private val _organizationOptionsLoading = MutableStateFlow(false)
+    val organizationOptionsLoading: StateFlow<Boolean> = _organizationOptionsLoading.asStateFlow()
 
     private val _cloudRecordsLoading = MutableStateFlow(false)
     val cloudRecordsLoading: StateFlow<Boolean> = _cloudRecordsLoading.asStateFlow()
@@ -414,6 +421,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 activeCloudClient = null
                 activeCloudClientKey = ""
                 refreshCloudRecords()
+                refreshOrganizationOptions()
                 startLegacyAutoMigration()
             } catch (e: Exception) {
                 _dataActionMessage.emit("云端登录失败：${e.message ?: "未知错误"}")
@@ -428,6 +436,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             val settings = withContext(Dispatchers.IO) { cloudStore.clear() }
             _cloudSettings.value = settings
             _cloudRecords.value = emptyList()
+            _organizationOptions.value = CloudOrganizationOptions()
             _cloudRecordDetail.value = null
             _cloudSaveState.value = CloudSaveUiState()
             _cloudConnectionState.value = CloudConnectionUiState()
@@ -458,6 +467,27 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun refreshOrganizationOptions() {
+        viewModelScope.launch {
+            val settings = _cloudSettings.value
+            if (!settings.isLoggedIn || _organizationOptionsLoading.value) return@launch
+            _organizationOptionsLoading.value = true
+            val result = withContext(Dispatchers.IO) {
+                cloudClient(settings).fetchOrganizationOptions()
+            }
+            result.fold(
+                onSuccess = {
+                    _organizationOptions.value = it
+                    markCloudRequestSuccess()
+                },
+                onFailure = { error ->
+                    handleCloudFailure("片区门店加载失败", error)
+                }
+            )
+            _organizationOptionsLoading.value = false
+        }
+    }
+
     private fun refreshCloudSession() {
         viewModelScope.launch {
             val settings = _cloudSettings.value
@@ -473,6 +503,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     activeCloudClient = null
                     activeCloudClientKey = ""
                     refreshCloudRecords()
+                    refreshOrganizationOptions()
                     startLegacyAutoMigration()
                 },
                 onFailure = { error ->
@@ -762,6 +793,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             override fun onAvailable(network: Network) {
                 if (_cloudSettings.value.isLoggedIn) {
                     refreshCloudRecords()
+                    refreshOrganizationOptions()
                     startLegacyAutoMigration()
                 }
             }

@@ -38,7 +38,7 @@ $recordRepository = new RecordRepository($pdo);
 
 $authService = new AuthService($userRepository, $config);
 $adminService = new AdminService($companyRepository, $organizationRepository, $userRepository);
-$recordService = new RecordService($recordRepository);
+$recordService = new RecordService($recordRepository, $organizationRepository);
 $exportService = new ExportService((string) $config->get('upload_root'));
 $fileStorage = new FileStorageService($config);
 $tencentMapService = new TencentMapService($config);
@@ -73,6 +73,7 @@ $router->add('GET', '/api/catalog', fn () => $catalogController->index());
 $router->add('GET', '/api/export/columns', fn () => $exportController->columns());
 $router->add('GET', '/api/export/xlsx', fn (Request $request) => $exportController->xlsx($request));
 $router->add('GET', '/api/records', fn (Request $request) => $recordController->index($request));
+$router->add('GET', '/api/organization-options', fn (Request $request) => $recordController->organizationOptions($request));
 $router->add('POST', '/api/records', fn (Request $request) => $recordController->store($request));
 $router->add('POST', '/api/records/drafts', fn (Request $request) => $recordController->saveDraft($request));
 $router->add('POST', '/api/records/drafts/submit', fn (Request $request) => $recordController->submitDraft($request));

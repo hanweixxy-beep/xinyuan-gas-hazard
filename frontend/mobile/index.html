@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#faf9f5">
   <title>淮北鑫远燃气隐患排查</title>
-  <link rel="stylesheet" href="./styles.css?v=20260730-tencent-geocode-1">
+  <link rel="stylesheet" href="./styles.css?v=20260903-v2.2.0">
 </head>
 <body>
   <main class="mobile-app">
@@ -162,6 +162,14 @@
       <section class="form-card form-step" data-step="user">
         <div class="card-heading"><span class="card-icon">检</span><h2>检查信息</h2></div>
         <label>检查人 <em>*</em><input name="inspectorName" placeholder="自动关联当前登录账号" readonly required></label>
+        <div class="inspection-organization">
+          <div>
+            <span>本次检查归属</span>
+            <strong id="inspectionOrganizationSummary">正在读取账号归属...</strong>
+            <em id="inspectionOrganizationHint">默认使用账号所属片区和门店</em>
+          </div>
+          <button id="organizationChangeBtn" class="text-button" type="button">变更</button>
+        </div>
         <label>检查日期 <em>*</em><input name="inspectionDate" type="date" required></label>
         <label>配送员 <em>*</em><input name="deliveryPerson" placeholder="请输入配送员" required></label>
       </section>
@@ -242,6 +250,21 @@
       </div>
     </form>
 
+    <section id="organizationSheet" class="mobile-sheet hidden" aria-hidden="true">
+      <div class="sheet-backdrop" data-organization-close="1"></div>
+      <article class="sheet-panel organization-sheet-panel">
+        <div class="sheet-handle"></div>
+        <div class="sheet-head">
+          <div><p class="date-line">仅影响当前记录</p><h2>变更检查归属</h2></div>
+          <button id="organizationCloseBtn" class="icon-button" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="organization-sheet-tip">系统默认使用账号所属片区和门店。临时跨区域检查时，在这里变更即可，下次新增会自动恢复默认归属。</p>
+        <label>片区 <em>*</em><select id="inspectionRegionSelect"></select></label>
+        <label>门店<select id="inspectionStoreSelect"></select></label>
+        <button id="organizationApplyBtn" class="primary wide-button" type="button">用于本次检查</button>
+      </article>
+    </section>
+
     <section id="mobileRecordDetailSheet" class="mobile-sheet hidden" aria-hidden="true">
       <div class="sheet-backdrop" data-mobile-detail-close="1"></div>
       <article class="sheet-panel">
@@ -301,6 +324,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260903-v2.1.1"></script>
+  <script type="module" src="./app.js?v=20260903-v2.2.0"></script>
 </body>
 </html>

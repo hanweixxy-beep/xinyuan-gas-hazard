@@ -101,8 +101,8 @@ final class RecordRepository
             $stmt->execute([
                 'client_uuid' => $clientUuid,
                 'company_id' => $companyId,
-                'region_id' => !empty($user['region_id']) ? (int) $user['region_id'] : null,
-                'store_id' => !empty($user['store_id']) ? (int) $user['store_id'] : null,
+                'region_id' => $this->resolveOrganizationId($user, $payload, 'regionId', 'region_id'),
+                'store_id' => $this->resolveOrganizationId($user, $payload, 'storeId', 'store_id'),
                 'creator_id' => (int) $user['id'],
                 'customer_name' => $payload['customerName'],
                 'customer_phone' => $payload['customerPhone'],
@@ -175,8 +175,8 @@ final class RecordRepository
             $values = [
                 'client_uuid' => $clientUuid,
                 'company_id' => $this->resolveCompanyId($user, $payload),
-                'region_id' => !empty($user['region_id']) ? (int) $user['region_id'] : null,
-                'store_id' => !empty($user['store_id']) ? (int) $user['store_id'] : null,
+                'region_id' => $this->resolveOrganizationId($user, $payload, 'regionId', 'region_id'),
+                'store_id' => $this->resolveOrganizationId($user, $payload, 'storeId', 'store_id'),
                 'creator_id' => (int) $user['id'],
                 'customer_name' => $payload['customerName'],
                 'customer_phone' => $payload['customerPhone'],
@@ -432,6 +432,14 @@ final class RecordRepository
     private function resolveCompanyId(array $user, array $payload): int
     {
         return (int) $user['company_id'];
+    }
+
+    /** @param array<string, mixed> $user @param array<string, mixed> $payload */
+    private function resolveOrganizationId(array $user, array $payload, string $payloadKey, string $userKey): ?int
+    {
+        $value = array_key_exists($payloadKey, $payload) ? $payload[$payloadKey] : ($user[$userKey] ?? null);
+        $id = (int) ($value ?? 0);
+        return $id > 0 ? $id : null;
     }
 
     private function normalizeClientUuid(mixed $value): ?string

@@ -918,6 +918,52 @@ input[readonly] {
   margin-top: 8px;
 }
 
+.inspection-organization {
+  display: flex;
+  min-height: 74px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 0;
+}
+
+.inspection-organization > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.inspection-organization span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inspection-organization strong {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.inspection-organization em {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.inspection-organization em.changed {
+  color: var(--amber);
+}
+
+.inspection-organization .text-button {
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 0 8px;
+  color: var(--brand-strong);
+  background: transparent;
+}
+
 .location-card {
   display: flex;
   min-height: 78px;
@@ -1421,6 +1467,34 @@ body.keyboard-open .inspection-form {
   font-family: Georgia, "Songti SC", serif;
   font-size: 24px;
   font-weight: 500;
+}
+
+.organization-sheet-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.organization-sheet-panel > label {
+  display: grid;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.organization-sheet-panel label em {
+  color: var(--danger);
+  font-style: normal;
+}
+
+.organization-sheet-tip {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.organization-sheet-panel .wide-button {
+  min-height: 52px;
 }
 
 .mobile-detail-grid {

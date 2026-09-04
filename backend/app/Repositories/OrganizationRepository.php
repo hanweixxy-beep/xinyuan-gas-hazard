@@ -30,7 +30,7 @@ final class OrganizationRepository
     public function listStores(?int $companyId = null): array
     {
         $sql = "SELECT s.id, s.company_id, c.name AS company_name, s.region_id, r.name AS region_name,
-                       s.name, s.address, s.status, s.created_at, s.updated_at
+                       r.status AS region_status, s.name, s.address, s.status, s.created_at, s.updated_at
                 FROM stores s
                 INNER JOIN companies c ON c.id = s.company_id
                 INNER JOIN regions r ON r.id = s.region_id";
@@ -42,6 +42,25 @@ final class OrganizationRepository
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($companyId === null ? [] : ['company_id' => $companyId]);
         return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function listActiveRegions(int $companyId): array
+    {
+        return array_values(array_filter(
+            $this->listRegions($companyId),
+            static fn (array $region): bool => ($region['status'] ?? '') === 'active'
+        ));
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function listActiveStores(int $companyId): array
+    {
+        return array_values(array_filter(
+            $this->listStores($companyId),
+            static fn (array $store): bool => ($store['status'] ?? '') === 'active'
+                && ($store['region_status'] ?? '') === 'active'
+        ));
     }
 
     /** @return array<string, mixed>|null */

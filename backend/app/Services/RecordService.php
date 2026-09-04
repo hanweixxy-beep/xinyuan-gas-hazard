@@ -4,11 +4,15 @@ namespace App\Services;
 
 use App\Core\HttpException;
 use App\Domain\HazardCatalog;
+use App\Repositories\OrganizationRepository;
 use App\Repositories\RecordRepository;
 
 final class RecordService
 {
-    public function __construct(private RecordRepository $records)
+    public function __construct(
+        private RecordRepository $records,
+        private OrganizationRepository $organization
+    )
     {
     }
 
@@ -38,6 +42,7 @@ final class RecordService
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function create(array $user, array $payload): int
     {
+        $payload = $this->withOrganizationSelection($user, $payload);
         $this->validateCreate($payload);
         return $this->records->create($user, $payload);
     }
@@ -45,6 +50,7 @@ final class RecordService
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function saveDraft(array $user, array $payload): int
     {
+        $payload = $this->withOrganizationSelection($user, $payload);
         $this->validateDraft($payload);
         return $this->records->saveDraft($user, $payload);
     }
@@ -52,10 +58,44 @@ final class RecordService
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function submitDraft(array $user, array $payload): int
     {
+        $payload = $this->withOrganizationSelection($user, $payload);
         $this->validateCreate($payload);
         $this->validateCloudSubmission($payload);
         $this->records->saveDraft($user, $payload);
         return $this->records->submitDraftByClientUuid((string) $payload['clientUuid'], $user);
+    }
+
+    /** @param array<string, mixed> $user @return array<string, mixed> */
+    public function organizationOptions(array $user): array
+    {
+        $companyId = (int) ($user['company_id'] ?? 0);
+        if ($companyId <= 0) {
+            throw new HttpException(422, '当前账号未分配公司，无法选择检查归属。');
+        }
+
+        $regions = array_map(static fn (array $region): array => [
+            'id' => (int) $region['id'],
+            'name' => (string) $region['name'],
+        ], $this->organization->listActiveRegions($companyId));
+        $stores = array_map(static fn (array $store): array => [
+            'id' => (int) $store['id'],
+            'regionId' => (int) $store['region_id'],
+            'name' => (string) $store['name'],
+            'address' => (string) ($store['address'] ?? ''),
+        ], $this->organization->listActiveStores($companyId));
+
+        return [
+            'companyId' => $companyId,
+            'companyName' => (string) ($user['company_name'] ?? ''),
+            'regions' => $regions,
+            'stores' => $stores,
+            'default' => [
+                'regionId' => !empty($user['region_id']) ? (int) $user['region_id'] : null,
+                'regionName' => (string) ($user['region_name'] ?? ''),
+                'storeId' => !empty($user['store_id']) ? (int) $user['store_id'] : null,
+                'storeName' => (string) ($user['store_name'] ?? ''),
+            ],
+        ];
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
@@ -163,5 +203,55 @@ final class RecordService
         if ($errors) {
             throw new HttpException(422, '照片上传不完整，不能提交正式记录。', $errors);
         }
+    }
+
+    /** @param array<string, mixed> $user @param array<string, mixed> $payload @return array<string, mixed> */
+    private function withOrganizationSelection(array $user, array $payload): array
+    {
+        $companyId = (int) ($user['company_id'] ?? 0);
+        if ($companyId <= 0) {
+            throw new HttpException(422, '当前账号未分配公司，无法保存检查记录。');
+        }
+
+        $regionId = array_key_exists('regionId', $payload)
+            ? $this->positiveIdOrNull($payload['regionId'])
+            : $this->positiveIdOrNull($user['region_id'] ?? null);
+        $storeId = array_key_exists('storeId', $payload)
+            ? $this->positiveIdOrNull($payload['storeId'])
+            : $this->positiveIdOrNull($user['store_id'] ?? null);
+
+        if ($storeId !== null) {
+            $store = $this->organization->findStore($storeId);
+            if (!$store
+                || (int) $store['company_id'] !== $companyId
+                || ($store['status'] ?? '') !== 'active'
+                || ($store['region_status'] ?? '') !== 'active') {
+                throw new HttpException(422, '所选门店不可用，请重新选择。', ['storeId' => '门店不存在、已停用或不属于当前公司']);
+            }
+            $storeRegionId = (int) $store['region_id'];
+            if ($regionId !== null && $regionId !== $storeRegionId) {
+                throw new HttpException(422, '门店与片区不匹配，请重新选择。', ['storeId' => '门店不属于所选片区']);
+            }
+            $regionId = $storeRegionId;
+        }
+
+        if ($regionId !== null) {
+            $region = $this->organization->findRegion($regionId);
+            if (!$region
+                || (int) $region['company_id'] !== $companyId
+                || ($region['status'] ?? '') !== 'active') {
+                throw new HttpException(422, '所选片区不可用，请重新选择。', ['regionId' => '片区不存在、已停用或不属于当前公司']);
+            }
+        }
+
+        $payload['regionId'] = $regionId;
+        $payload['storeId'] = $storeId;
+        return $payload;
+    }
+
+    private function positiveIdOrNull(mixed $value): ?int
+    {
+        $id = (int) ($value ?? 0);
+        return $id > 0 ? $id : null;
     }
 }

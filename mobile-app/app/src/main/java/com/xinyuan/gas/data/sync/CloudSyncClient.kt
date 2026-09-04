@@ -31,6 +31,10 @@ data class CloudSettings(
     val userPhone: String = "",
     val companyId: Long = 0L,
     val companyName: String = "",
+    val regionId: Long = 0L,
+    val regionName: String = "",
+    val storeId: Long = 0L,
+    val storeName: String = "",
     val role: String = "",
     val loginScope: String = "",
     val canViewCompanyRecords: Boolean = false
@@ -47,9 +51,30 @@ data class CloudLoginSession(
     val userPhone: String,
     val companyId: Long,
     val companyName: String,
+    val regionId: Long,
+    val regionName: String,
+    val storeId: Long,
+    val storeName: String,
     val role: String,
     val loginScope: String,
     val canViewCompanyRecords: Boolean
+)
+
+data class CloudRegion(
+    val id: Long,
+    val name: String
+)
+
+data class CloudStore(
+    val id: Long,
+    val regionId: Long,
+    val name: String,
+    val address: String
+)
+
+data class CloudOrganizationOptions(
+    val regions: List<CloudRegion> = emptyList(),
+    val stores: List<CloudStore> = emptyList()
 )
 
 data class CloudRecordSummary(
@@ -85,6 +110,8 @@ data class CloudRecordDetail(
     val checkResult: String,
     val status: String,
     val inspectorName: String,
+    val regionName: String,
+    val storeName: String,
     val deliveryPerson: String,
     val remark: String,
     val locationAddress: String,
@@ -114,6 +141,10 @@ class CloudSessionStore(context: Context) {
         userPhone = prefs.getString("userPhone", "").orEmpty(),
         companyId = prefs.getLong("companyId", 0L),
         companyName = prefs.getString("companyName", "").orEmpty(),
+        regionId = prefs.getLong("regionId", 0L),
+        regionName = prefs.getString("regionName", "").orEmpty(),
+        storeId = prefs.getLong("storeId", 0L),
+        storeName = prefs.getString("storeName", "").orEmpty(),
         role = prefs.getString("role", "").orEmpty(),
         loginScope = prefs.getString("loginScope", "").orEmpty(),
         canViewCompanyRecords = prefs.getBoolean("canViewCompanyRecords", false)
@@ -128,6 +159,10 @@ class CloudSessionStore(context: Context) {
             .putString("userPhone", session.userPhone)
             .putLong("companyId", session.companyId)
             .putString("companyName", session.companyName)
+            .putLong("regionId", session.regionId)
+            .putString("regionName", session.regionName)
+            .putLong("storeId", session.storeId)
+            .putString("storeName", session.storeName)
             .putString("role", session.role)
             .putString("loginScope", session.loginScope)
             .putBoolean("canViewCompanyRecords", session.canViewCompanyRecords)
@@ -151,6 +186,7 @@ interface CloudSyncClient {
     suspend fun saveTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
     suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult>
     suspend fun fetchCurrentSession(): Result<CloudLoginSession>
+    suspend fun fetchOrganizationOptions(): Result<CloudOrganizationOptions>
     suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>>
     suspend fun fetchTerminalRecord(id: Long): Result<CloudRecordDetail>
     suspend fun rectifyTerminalRecord(
@@ -204,10 +240,40 @@ class HttpCloudSyncClient(
             userPhone = user.optString("phone"),
             companyId = user.optLong("companyId"),
             companyName = user.optString("companyName"),
+            regionId = user.optLong("regionId"),
+            regionName = user.optString("regionName"),
+            storeId = user.optLong("storeId"),
+            storeName = user.optString("storeName"),
             role = user.optString("role"),
             loginScope = user.optString("loginScope"),
             canViewCompanyRecords = user.optBoolean("canViewCompanyRecords", false)
         )
+    }
+
+    override suspend fun fetchOrganizationOptions(): Result<CloudOrganizationOptions> = runCatching {
+        val data = getJson("/organization-options")
+        val regionsJson = data.optJSONArray("regions") ?: JSONArray()
+        val storesJson = data.optJSONArray("stores") ?: JSONArray()
+        val regions = buildList {
+            for (index in 0 until regionsJson.length()) {
+                val item = regionsJson.optJSONObject(index) ?: continue
+                add(CloudRegion(id = item.optLong("id"), name = item.optString("name")))
+            }
+        }
+        val stores = buildList {
+            for (index in 0 until storesJson.length()) {
+                val item = storesJson.optJSONObject(index) ?: continue
+                add(
+                    CloudStore(
+                        id = item.optLong("id"),
+                        regionId = item.optLong("regionId"),
+                        name = item.optString("name"),
+                        address = item.optString("address")
+                    )
+                )
+            }
+        }
+        CloudOrganizationOptions(regions = regions, stores = stores)
     }
 
     override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = runCatching {
@@ -244,6 +310,8 @@ class HttpCloudSyncClient(
             checkResult = record.textOrBlank("check_result"),
             status = record.textOrBlank("status"),
             inspectorName = record.textOrBlank("inspector_name"),
+            regionName = record.textOrBlank("region_name"),
+            storeName = record.textOrBlank("store_name"),
             deliveryPerson = record.textOrBlank("delivery_person"),
             remark = record.textOrBlank("remark"),
             locationAddress = record.textOrBlank("location_address"),
@@ -369,6 +437,8 @@ class HttpCloudSyncClient(
             put("customerType", requiredText(record.customerType))
             put("customerAddress", requiredText(record.customerAddress))
             put("inspectorName", requiredText(record.inspectorName))
+            put("regionId", record.regionId.takeIf { it > 0L } ?: JSONObject.NULL)
+            put("storeId", record.storeId.takeIf { it > 0L } ?: JSONObject.NULL)
             put("deliveryPerson", requiredText(record.deliveryPerson))
             put("inspectionDate", formatDate(record.inspectionDate))
             put("checkResult", serverCheckResult(record))
@@ -590,6 +660,10 @@ class HttpCloudSyncClient(
                     userPhone = user.optString("phone"),
                     companyId = user.optLong("companyId"),
                     companyName = user.optString("companyName"),
+                    regionId = user.optLong("regionId"),
+                    regionName = user.optString("regionName"),
+                    storeId = user.optLong("storeId"),
+                    storeName = user.optString("storeName"),
                     role = user.optString("role"),
                     loginScope = user.optString("loginScope"),
                     canViewCompanyRecords = user.optBoolean("canViewCompanyRecords", false)
@@ -611,6 +685,8 @@ class NotConfiguredCloudSyncClient : CloudSyncClient {
     override suspend fun submitTerminalDraft(record: TerminalHazardRecord): Result<CloudSyncResult> = notConfigured()
 
     override suspend fun fetchCurrentSession(): Result<CloudLoginSession> = notConfigured()
+
+    override suspend fun fetchOrganizationOptions(): Result<CloudOrganizationOptions> = notConfigured()
 
     override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = notConfigured()
 

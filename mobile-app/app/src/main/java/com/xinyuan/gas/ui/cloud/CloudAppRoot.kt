@@ -1098,6 +1098,15 @@ private fun CloudRecordDetailOverlay(
                             item { DetailLine("地址", detail.customerAddress) }
                             item { DetailLine("检查日期", detail.inspectionDate) }
                             item { DetailLine("检查人", detail.inspectorName) }
+                            item {
+                                DetailLine(
+                                    "检查归属",
+                                    listOf(detail.regionName, detail.storeName)
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" / ")
+                                        .ifBlank { "公司级" }
+                                )
+                            }
                             item { DetailLine("配送员", detail.deliveryPerson) }
                             item { DetailLine("检查结果", detail.checkResult) }
                             if (detail.hazards.isNotEmpty()) {

@@ -7,6 +7,7 @@ use App\Repositories\OrganizationRepository;
 use App\Repositories\RecordRepository;
 use App\Repositories\UserRepository;
 use App\Services\AdminService;
+use App\Services\RecordService;
 
 require dirname(__DIR__) . '/app/Core/Autoloader.php';
 Autoloader::register(dirname(__DIR__) . '/app');
@@ -32,6 +33,7 @@ $organization = new OrganizationRepository($pdo);
 $users = new UserRepository($pdo);
 $admin = new AdminService($companies, $organization, $users);
 $records = new RecordRepository($pdo);
+$recordService = new RecordService($records, $organization);
 
 $company = $pdo->query('SELECT id FROM companies ORDER BY id ASC LIMIT 1')->fetch();
 if (!$company) {
@@ -61,7 +63,7 @@ if (!$user || (int) $user['region_id'] !== $regionId || (int) $user['store_id'] 
     throw new RuntimeException('Store assignment did not derive its parent region.');
 }
 
-$recordId = $records->create($user, [
+$recordId = $recordService->create($user, [
     'clientUuid' => 'organization-integration-' . time(),
     'customerName' => '组织快照测试用户',
     'customerPhone' => '19900000000',
@@ -77,6 +79,72 @@ $recordId = $records->create($user, [
 $record = $records->findForUser($recordId, $user);
 if (!$record || (int) $record['region_id'] !== $regionId || (int) $record['store_id'] !== $storeId) {
     throw new RuntimeException('The inspection record did not retain the organization snapshot.');
+}
+
+$otherRegionId = $admin->createRegion($actor, ['companyId' => $companyId, 'name' => '跨区检查测试片区']);
+$otherStoreId = $admin->createStore($actor, [
+    'regionId' => $otherRegionId,
+    'name' => '跨区检查测试门店',
+    'address' => '临时数据库跨区地址',
+]);
+$overridePayload = [
+    'clientUuid' => 'organization-override-' . time(),
+    'customerName' => '跨区检查测试用户',
+    'customerPhone' => '19900000001',
+    'customerType' => '居民用户',
+    'customerAddress' => '临时数据库跨区地址',
+    'inspectorName' => '组织测试员',
+    'deliveryPerson' => '测试配送员',
+    'inspectionDate' => date('Y-m-d'),
+    'checkResult' => '隐患已清零',
+    'remark' => '',
+    'photos' => [],
+    'regionId' => $otherRegionId,
+    'storeId' => $otherStoreId,
+];
+$overrideRecordId = $recordService->create($user, $overridePayload);
+$overrideRecord = $records->findForUser($overrideRecordId, $user);
+if (!$overrideRecord
+    || (int) $overrideRecord['region_id'] !== $otherRegionId
+    || (int) $overrideRecord['store_id'] !== $otherStoreId) {
+    throw new RuntimeException('A cross-region inspection did not retain its selected organization.');
+}
+
+$mismatchRejected = false;
+try {
+    $recordService->create($user, array_merge($overridePayload, [
+        'clientUuid' => 'organization-mismatch-' . time(),
+        'regionId' => $regionId,
+    ]));
+} catch (HttpException $exception) {
+    $mismatchRejected = $exception->status() === 422;
+}
+if (!$mismatchRejected) {
+    throw new RuntimeException('A store outside the selected region must be rejected.');
+}
+
+$options = $recordService->organizationOptions($user);
+if (count($options['regions']) < 2 || count($options['stores']) < 2) {
+    throw new RuntimeException('Organization options did not include all active company regions and stores.');
+}
+
+$pdo->prepare("UPDATE regions SET status = 'disabled' WHERE id = :id")->execute(['id' => $otherRegionId]);
+$activeOptions = $recordService->organizationOptions($user);
+if (array_filter($activeOptions['stores'], static fn (array $store): bool => (int) $store['id'] === $otherStoreId)) {
+    throw new RuntimeException('Stores in an inactive region must not appear in inspection options.');
+}
+$pdo->prepare("UPDATE regions SET status = 'active' WHERE id = :id")->execute(['id' => $otherRegionId]);
+
+$pdo->prepare('UPDATE users SET region_id = NULL, store_id = NULL WHERE id = :id')->execute(['id' => $userId]);
+$unassignedUser = $users->findById($userId);
+$companyLevelRecordId = $recordService->create($unassignedUser, array_merge($overridePayload, [
+    'clientUuid' => 'organization-company-level-' . time(),
+    'regionId' => null,
+    'storeId' => null,
+]));
+$companyLevelRecord = $records->findForUser($companyLevelRecordId, $unassignedUser);
+if (!$companyLevelRecord || $companyLevelRecord['region_id'] !== null || $companyLevelRecord['store_id'] !== null) {
+    throw new RuntimeException('An unassigned legacy account must remain able to create a company-level record.');
 }
 
 $rejected = false;

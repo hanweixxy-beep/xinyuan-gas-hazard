@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardRecord
+import com.xinyuan.gas.data.sync.CloudOrganizationOptions
 import com.xinyuan.gas.ui.components.BrandLogo
 import com.xinyuan.gas.ui.components.IOSClickableRow
 import com.xinyuan.gas.ui.components.IOSDropdownRow
@@ -115,6 +116,8 @@ fun TerminalHazardFormScreen(
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA) }
     val prefs = remember { context.getSharedPreferences("gas_prefs", android.content.Context.MODE_PRIVATE) }
     val cloudSettings by viewModel.cloudSettings.collectAsState()
+    val organizationOptions by viewModel.organizationOptions.collectAsState()
+    val organizationOptionsLoading by viewModel.organizationOptionsLoading.collectAsState()
     val cloudSaveState by viewModel.cloudSaveState.collectAsState()
     val cloudSubmitInProgress by viewModel.cloudSubmitInProgress.collectAsState()
     var draftUuid by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
@@ -133,6 +136,11 @@ fun TerminalHazardFormScreen(
     var inspectorName by remember {
         mutableStateOf(cloudSettings.userName.ifBlank { prefs.getString("last_inspector", "") ?: "" })
     }
+    var inspectionRegionId by rememberSaveable { mutableStateOf(cloudSettings.regionId) }
+    var inspectionRegionName by rememberSaveable { mutableStateOf(cloudSettings.regionName) }
+    var inspectionStoreId by rememberSaveable { mutableStateOf(cloudSettings.storeId) }
+    var inspectionStoreName by rememberSaveable { mutableStateOf(cloudSettings.storeName) }
+    var showOrganizationPicker by rememberSaveable { mutableStateOf(false) }
     var inspectionDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var checkResult by remember { mutableStateOf(TerminalHazardCatalog.RESULT_CLEARED) }
     var originalCheckResult by remember { mutableStateOf("") }
@@ -158,6 +166,22 @@ fun TerminalHazardFormScreen(
         "配送员".takeIf { deliveryPerson.isBlank() }
     )
     val storefrontWatermarkReady = storefrontMissingFields.isEmpty()
+    val organizationSummary = buildString {
+        append(inspectionRegionName.ifBlank { "公司级（未分配片区）" })
+        if (inspectionStoreName.isNotBlank()) append(" · $inspectionStoreName")
+    }
+    val usingDefaultOrganization = inspectionRegionId == cloudSettings.regionId &&
+        inspectionStoreId == cloudSettings.storeId
+
+    LaunchedEffect(cloudSettings.userId) {
+        if (editRecordId == 0L) {
+            inspectionRegionId = cloudSettings.regionId
+            inspectionRegionName = cloudSettings.regionName
+            inspectionStoreId = cloudSettings.storeId
+            inspectionStoreName = cloudSettings.storeName
+        }
+        viewModel.refreshOrganizationOptions()
+    }
 
     LaunchedEffect(editRecordId) {
         if (editRecordId > 0) {
@@ -175,6 +199,10 @@ fun TerminalHazardFormScreen(
                     locationAccuracyMeters = record.locationAccuracyMeters
                     locationCapturedAt = record.locationCapturedAt
                     inspectorName = record.inspectorName
+                    inspectionRegionId = record.regionId.takeIf { it > 0L } ?: cloudSettings.regionId
+                    inspectionRegionName = record.regionName.ifBlank { cloudSettings.regionName }
+                    inspectionStoreId = record.storeId.takeIf { it > 0L } ?: cloudSettings.storeId
+                    inspectionStoreName = record.storeName.ifBlank { cloudSettings.storeName }
                     inspectionDate = record.inspectionDate
                     checkResult = record.checkResult
                     originalCheckResult = record.checkResult
@@ -345,6 +373,10 @@ fun TerminalHazardFormScreen(
             locationAccuracyMeters = locationAccuracyMeters,
             locationCapturedAt = locationCapturedAt,
             inspectorName = effectiveInspectorName,
+            regionId = inspectionRegionId,
+            regionName = inspectionRegionName,
+            storeId = inspectionStoreId,
+            storeName = inspectionStoreName,
             inspectionDate = inspectionDate,
             checkResult = resultToSave,
             hazardItems = selectedHazards.joinToString(","),
@@ -415,6 +447,8 @@ fun TerminalHazardFormScreen(
         locationLongitude,
         locationAccuracyMeters,
         locationCapturedAt,
+        inspectionRegionId,
+        inspectionStoreId,
         storefrontPhoto,
         deliveryPerson,
         inspectionDate,
@@ -507,6 +541,14 @@ fun TerminalHazardFormScreen(
                             LockedAccountField(
                                 label = "检查人",
                                 value = cloudSettings.userName.ifBlank { inspectorName }
+                            )
+                            InspectionOrganizationRow(
+                                summary = organizationSummary,
+                                usingDefault = usingDefaultOrganization,
+                                loading = organizationOptionsLoading,
+                                canChange = organizationOptions.regions.isNotEmpty(),
+                                hasAssignedRegion = inspectionRegionId > 0L,
+                                onChange = { showOrganizationPicker = true }
                             )
                             IOSClickableRow(
                                 label = "检查日期",
@@ -760,6 +802,7 @@ fun TerminalHazardFormScreen(
                                 }
                             )
                             SummaryRow("检查人", inspectorName)
+                            SummaryRow("检查归属", organizationSummary)
                             SummaryRow("配送员", deliveryPerson)
                             SummaryRow(
                                 "现场照片",
@@ -811,6 +854,23 @@ fun TerminalHazardFormScreen(
         }
     }
 
+    if (showOrganizationPicker) {
+        OrganizationPickerDialog(
+            options = organizationOptions,
+            loading = organizationOptionsLoading,
+            initialRegionId = inspectionRegionId,
+            initialStoreId = inspectionStoreId,
+            onDismiss = { showOrganizationPicker = false },
+            onConfirm = { regionId, regionName, storeId, storeName ->
+                inspectionRegionId = regionId
+                inspectionRegionName = regionName
+                inspectionStoreId = storeId
+                inspectionStoreName = storeName
+                showOrganizationPicker = false
+            }
+        )
+    }
+
     previewPhoto?.let { photo ->
         AlertDialog(
             onDismissRequest = { previewPhoto = null },
@@ -832,6 +892,131 @@ fun TerminalHazardFormScreen(
             }
         )
     }
+}
+
+@Composable
+private fun InspectionOrganizationRow(
+    summary: String,
+    usingDefault: Boolean,
+    loading: Boolean,
+    canChange: Boolean,
+    hasAssignedRegion: Boolean,
+    onChange: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("本次检查归属", style = MaterialTheme.typography.labelMedium, color = GraySecondaryText)
+            Spacer(Modifier.height(5.dp))
+            Text(summary, style = MaterialTheme.typography.bodyLarge, color = InkPrimary)
+            Text(
+                when {
+                    !hasAssignedRegion -> "尚未配置账号归属，当前按公司级记录"
+                    usingDefault -> "已自动使用账号默认归属"
+                    else -> "仅本条记录使用此归属"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (usingDefault || !hasAssignedRegion) GrayTertiaryText else OrangeAccent
+            )
+        }
+        TextButton(onClick = onChange, enabled = !loading && canChange) {
+            Text(
+                when {
+                    loading -> "加载中"
+                    canChange -> "变更"
+                    else -> "未配置"
+                },
+                color = if (canChange) BrandGreenStrong else GrayTertiaryText,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+    HorizontalDivider(modifier = Modifier.padding(start = 16.dp), color = GraySeparator)
+}
+
+@Composable
+private fun OrganizationPickerDialog(
+    options: CloudOrganizationOptions,
+    loading: Boolean,
+    initialRegionId: Long,
+    initialStoreId: Long,
+    onDismiss: () -> Unit,
+    onConfirm: (Long, String, Long, String) -> Unit
+) {
+    var regionId by remember(initialRegionId) { mutableStateOf(initialRegionId) }
+    var storeId by remember(initialStoreId) { mutableStateOf(initialStoreId) }
+    val selectedRegion = options.regions.find { it.id == regionId }
+    val availableStores = options.stores.filter { it.regionId == regionId }
+    val selectedStore = availableStores.find { it.id == storeId }
+    val regionNames = options.regions.map { it.name }
+    val regionLevelLabel = "片区级（不指定门店）"
+    val storeNames = listOf(regionLevelLabel) + availableStores.map { it.name }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("变更本次检查归属") },
+        text = {
+            Column {
+                Text(
+                    "默认使用账号所属片区和门店。这里的变更只影响本条检查记录。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GraySecondaryText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                if (loading && options.regions.isEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(20.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = BrandGreen)
+                    }
+                } else {
+                    IOSDropdownRow(
+                        label = "片区",
+                        value = selectedRegion?.name.orEmpty(),
+                        options = regionNames,
+                        onSelect = { name ->
+                            regionId = options.regions.firstOrNull { it.name == name }?.id ?: 0L
+                            storeId = 0L
+                        },
+                        required = true
+                    )
+                    IOSDropdownRow(
+                        label = "门店",
+                        value = selectedStore?.name ?: regionLevelLabel,
+                        options = storeNames,
+                        onSelect = { name ->
+                            storeId = availableStores.firstOrNull { it.name == name }?.id ?: 0L
+                        },
+                        showDivider = false
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(
+                        regionId,
+                        selectedRegion?.name.orEmpty(),
+                        storeId,
+                        selectedStore?.name.orEmpty()
+                    )
+                },
+                enabled = regionId > 0L
+            ) {
+                Text("用于本次检查")
+            }
+        }
+    )
 }
 
 @Composable
