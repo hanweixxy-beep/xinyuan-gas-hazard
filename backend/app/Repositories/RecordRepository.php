@@ -101,8 +101,8 @@ final class RecordRepository
             $stmt->execute([
                 'client_uuid' => $clientUuid,
                 'company_id' => $companyId,
-                'region_id' => $this->resolveOrganizationId($user, $payload, 'regionId', 'region_id'),
-                'store_id' => $this->resolveOrganizationId($user, $payload, 'storeId', 'store_id'),
+                'region_id' => $this->resolveOrganizationId($payload, 'regionId'),
+                'store_id' => $this->resolveOrganizationId($payload, 'storeId'),
                 'creator_id' => (int) $user['id'],
                 'customer_name' => $payload['customerName'],
                 'customer_phone' => $payload['customerPhone'],
@@ -175,8 +175,8 @@ final class RecordRepository
             $values = [
                 'client_uuid' => $clientUuid,
                 'company_id' => $this->resolveCompanyId($user, $payload),
-                'region_id' => $this->resolveOrganizationId($user, $payload, 'regionId', 'region_id'),
-                'store_id' => $this->resolveOrganizationId($user, $payload, 'storeId', 'store_id'),
+                'region_id' => $this->resolveOrganizationId($payload, 'regionId'),
+                'store_id' => $this->resolveOrganizationId($payload, 'storeId'),
                 'creator_id' => (int) $user['id'],
                 'customer_name' => $payload['customerName'],
                 'customer_phone' => $payload['customerPhone'],
@@ -434,10 +434,10 @@ final class RecordRepository
         return (int) $user['company_id'];
     }
 
-    /** @param array<string, mixed> $user @param array<string, mixed> $payload */
-    private function resolveOrganizationId(array $user, array $payload, string $payloadKey, string $userKey): ?int
+    /** @param array<string, mixed> $payload */
+    private function resolveOrganizationId(array $payload, string $payloadKey): ?int
     {
-        $value = array_key_exists($payloadKey, $payload) ? $payload[$payloadKey] : ($user[$userKey] ?? null);
+        $value = $payload[$payloadKey] ?? null;
         $id = (int) ($value ?? 0);
         return $id > 0 ? $id : null;
     }

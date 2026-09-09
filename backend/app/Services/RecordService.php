@@ -42,6 +42,7 @@ final class RecordService
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function create(array $user, array $payload): int
     {
+        // Legacy APP imports can lack organization fields; new inspections use submitDraft.
         $payload = $this->withOrganizationSelection($user, $payload);
         $this->validateCreate($payload);
         return $this->records->create($user, $payload);
@@ -58,7 +59,7 @@ final class RecordService
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function submitDraft(array $user, array $payload): int
     {
-        $payload = $this->withOrganizationSelection($user, $payload);
+        $payload = $this->withOrganizationSelection($user, $payload, true);
         $this->validateCreate($payload);
         $this->validateCloudSubmission($payload);
         $this->records->saveDraft($user, $payload);
@@ -90,10 +91,10 @@ final class RecordService
             'regions' => $regions,
             'stores' => $stores,
             'default' => [
-                'regionId' => !empty($user['region_id']) ? (int) $user['region_id'] : null,
-                'regionName' => (string) ($user['region_name'] ?? ''),
-                'storeId' => !empty($user['store_id']) ? (int) $user['store_id'] : null,
-                'storeName' => (string) ($user['store_name'] ?? ''),
+                'regionId' => null,
+                'regionName' => '',
+                'storeId' => null,
+                'storeName' => '',
             ],
         ];
     }
@@ -206,19 +207,21 @@ final class RecordService
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $payload @return array<string, mixed> */
-    private function withOrganizationSelection(array $user, array $payload): array
+    private function withOrganizationSelection(array $user, array $payload, bool $required = false): array
     {
         $companyId = (int) ($user['company_id'] ?? 0);
         if ($companyId <= 0) {
             throw new HttpException(422, '当前账号未分配公司，无法保存检查记录。');
         }
 
-        $regionId = array_key_exists('regionId', $payload)
-            ? $this->positiveIdOrNull($payload['regionId'])
-            : $this->positiveIdOrNull($user['region_id'] ?? null);
-        $storeId = array_key_exists('storeId', $payload)
-            ? $this->positiveIdOrNull($payload['storeId'])
-            : $this->positiveIdOrNull($user['store_id'] ?? null);
+        $regionId = $this->positiveIdOrNull($payload['regionId'] ?? null);
+        $storeId = $this->positiveIdOrNull($payload['storeId'] ?? null);
+        if ($required && ($regionId === null || $storeId === null)) {
+            $errors = [];
+            if ($regionId === null) $errors['regionId'] = '请选择检查片区';
+            if ($storeId === null) $errors['storeId'] = '请选择检查门店';
+            throw new HttpException(422, '请选择本次检查的片区和门店后再提交。', $errors);
+        }
 
         if ($storeId !== null) {
             $store = $this->organization->findStore($storeId);

@@ -86,6 +86,8 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _organizationOptionsLoading = MutableStateFlow(false)
     val organizationOptionsLoading: StateFlow<Boolean> = _organizationOptionsLoading.asStateFlow()
+    private val _organizationOptionsLoaded = MutableStateFlow(false)
+    val organizationOptionsLoaded: StateFlow<Boolean> = _organizationOptionsLoaded.asStateFlow()
 
     private val _cloudRecordsLoading = MutableStateFlow(false)
     val cloudRecordsLoading: StateFlow<Boolean> = _cloudRecordsLoading.asStateFlow()
@@ -416,6 +418,8 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     cloudStore.save(session)
                 }
                 _cloudSettings.value = settings
+                _organizationOptions.value = CloudOrganizationOptions()
+                _organizationOptionsLoaded.value = false
                 markCloudRequestSuccess()
                 _dataActionMessage.emit("云端登录成功：${settings.userName.ifBlank { "已登录" }}")
                 activeCloudClient = null
@@ -437,6 +441,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             _cloudSettings.value = settings
             _cloudRecords.value = emptyList()
             _organizationOptions.value = CloudOrganizationOptions()
+            _organizationOptionsLoaded.value = false
             _cloudRecordDetail.value = null
             _cloudSaveState.value = CloudSaveUiState()
             _cloudConnectionState.value = CloudConnectionUiState()
@@ -472,12 +477,19 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             val settings = _cloudSettings.value
             if (!settings.isLoggedIn || _organizationOptionsLoading.value) return@launch
             _organizationOptionsLoading.value = true
+            _organizationOptionsLoaded.value = false
             val result = withContext(Dispatchers.IO) {
                 cloudClient(settings).fetchOrganizationOptions()
+            }
+            if (settings.token != _cloudSettings.value.token) {
+                _organizationOptionsLoading.value = false
+                if (_cloudSettings.value.isLoggedIn) refreshOrganizationOptions()
+                return@launch
             }
             result.fold(
                 onSuccess = {
                     _organizationOptions.value = it
+                    _organizationOptionsLoaded.value = true
                     markCloudRequestSuccess()
                 },
                 onFailure = { error ->

@@ -170,12 +170,10 @@ final class AdminService
         }
 
         $this->assertRoleAssignable($actor, $role);
-        [$regionId, $storeId] = $this->resolveOrganizationAssignment($companyId, $role, $payload);
-
         return $this->users->createUser([
             'company_id' => $companyId,
-            'region_id' => $regionId,
-            'store_id' => $storeId,
+            'region_id' => null,
+            'store_id' => null,
             'name' => $name,
             'phone' => $phone,
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
@@ -202,23 +200,10 @@ final class AdminService
         }
 
         $canViewCompanyRecords = $role === 'inspector' && !empty($payload['canViewCompanyRecords']);
-        $updateOrganization = array_key_exists('regionId', $payload) || array_key_exists('storeId', $payload);
-        $regionId = null;
-        $storeId = null;
-        if ($updateOrganization) {
-            [$regionId, $storeId] = $this->resolveOrganizationAssignment(
-                (int) $target['company_id'],
-                $role,
-                $payload
-            );
-        }
         $this->users->updateAccess(
             $id,
             $loginScope,
-            $canViewCompanyRecords,
-            $regionId,
-            $storeId,
-            $updateOrganization
+            $canViewCompanyRecords
         );
         $this->users->deleteSessionsForUser($id);
     }
@@ -288,35 +273,6 @@ final class AdminService
         if ($actor['role'] !== 'hq_admin' && (int) $actor['company_id'] !== $companyId) {
             throw new HttpException(403, '不能管理其他公司的组织。');
         }
-    }
-
-    /** @param array<string, mixed> $payload @return array{0:?int,1:?int} */
-    private function resolveOrganizationAssignment(int $companyId, string $role, array $payload): array
-    {
-        if ($role === 'hq_admin') {
-            return [null, null];
-        }
-
-        $storeId = (int) ($payload['storeId'] ?? 0);
-        if ($storeId > 0) {
-            $store = $this->organization->findStore($storeId);
-            if (
-                !$store ||
-                (int) $store['company_id'] !== $companyId ||
-                $store['status'] !== 'active' ||
-                $store['region_status'] !== 'active'
-            ) {
-                throw new HttpException(422, '请选择本公司已启用的门店。');
-            }
-            return [(int) $store['region_id'], $storeId];
-        }
-
-        $regionId = (int) ($payload['regionId'] ?? 0);
-        $region = $this->organization->findRegion($regionId);
-        if (!$region || (int) $region['company_id'] !== $companyId || $region['status'] !== 'active') {
-            throw new HttpException(422, '请选择本公司已启用的片区或门店。');
-        }
-        return [$regionId, null];
     }
 
     /** @param array<string, mixed> $actor @param array<string, mixed> $payload */

@@ -165,10 +165,10 @@
         <div class="inspection-organization">
           <div>
             <span>本次检查归属</span>
-            <strong id="inspectionOrganizationSummary">正在读取账号归属...</strong>
-            <em id="inspectionOrganizationHint">默认使用账号所属片区和门店</em>
+            <strong id="inspectionOrganizationSummary">请选择检查片区和门店</strong>
+            <em id="inspectionOrganizationHint">必选</em>
           </div>
-          <button id="organizationChangeBtn" class="text-button" type="button">变更</button>
+          <button id="organizationChangeBtn" class="text-button" type="button">选择</button>
         </div>
         <label>检查日期 <em>*</em><input name="inspectionDate" type="date" required></label>
         <label>配送员 <em>*</em><input name="deliveryPerson" placeholder="请输入配送员" required></label>
@@ -255,13 +255,12 @@
       <article class="sheet-panel organization-sheet-panel">
         <div class="sheet-handle"></div>
         <div class="sheet-head">
-          <div><p class="date-line">仅影响当前记录</p><h2>变更检查归属</h2></div>
+          <div><p class="date-line">本次检查</p><h2>选择片区和门店</h2></div>
           <button id="organizationCloseBtn" class="icon-button" type="button" aria-label="关闭">×</button>
         </div>
-        <p class="organization-sheet-tip">系统默认使用账号所属片区和门店。临时跨区域检查时，在这里变更即可，下次新增会自动恢复默认归属。</p>
-        <label>片区 <em>*</em><select id="inspectionRegionSelect"></select></label>
-        <label>门店<select id="inspectionStoreSelect"></select></label>
-        <button id="organizationApplyBtn" class="primary wide-button" type="button">用于本次检查</button>
+        <label><span>片区 <em>*</em></span><select id="inspectionRegionSelect"></select></label>
+        <label><span>门店 <em>*</em></span><select id="inspectionStoreSelect"></select></label>
+        <button id="organizationApplyBtn" class="primary wide-button" type="button">确认选择</button>
       </article>
     </section>
 
@@ -324,6 +323,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260903-v2.2.0"></script>
+  <script type="module" src="./app.js?v=20260907-v2.3.0"></script>
 </body>
 </html>

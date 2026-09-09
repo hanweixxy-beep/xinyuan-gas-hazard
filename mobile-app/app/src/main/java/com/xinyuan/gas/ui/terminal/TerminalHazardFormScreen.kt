@@ -118,6 +118,7 @@ fun TerminalHazardFormScreen(
     val cloudSettings by viewModel.cloudSettings.collectAsState()
     val organizationOptions by viewModel.organizationOptions.collectAsState()
     val organizationOptionsLoading by viewModel.organizationOptionsLoading.collectAsState()
+    val organizationOptionsLoaded by viewModel.organizationOptionsLoaded.collectAsState()
     val cloudSaveState by viewModel.cloudSaveState.collectAsState()
     val cloudSubmitInProgress by viewModel.cloudSubmitInProgress.collectAsState()
     var draftUuid by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
@@ -136,10 +137,20 @@ fun TerminalHazardFormScreen(
     var inspectorName by remember {
         mutableStateOf(cloudSettings.userName.ifBlank { prefs.getString("last_inspector", "") ?: "" })
     }
-    var inspectionRegionId by rememberSaveable { mutableStateOf(cloudSettings.regionId) }
-    var inspectionRegionName by rememberSaveable { mutableStateOf(cloudSettings.regionName) }
-    var inspectionStoreId by rememberSaveable { mutableStateOf(cloudSettings.storeId) }
-    var inspectionStoreName by rememberSaveable { mutableStateOf(cloudSettings.storeName) }
+    val organizationPreferenceKey = "inspection_org:${cloudSettings.baseUrl}:${cloudSettings.companyId}:${cloudSettings.userId}"
+    var inspectionRegionId by rememberSaveable(organizationPreferenceKey) {
+        mutableStateOf(prefs.getLong("$organizationPreferenceKey:regionId", 0L))
+    }
+    var inspectionRegionName by rememberSaveable(organizationPreferenceKey) {
+        mutableStateOf(prefs.getString("$organizationPreferenceKey:regionName", "").orEmpty())
+    }
+    var inspectionStoreId by rememberSaveable(organizationPreferenceKey) {
+        mutableStateOf(prefs.getLong("$organizationPreferenceKey:storeId", 0L))
+    }
+    var inspectionStoreName by rememberSaveable(organizationPreferenceKey) {
+        mutableStateOf(prefs.getString("$organizationPreferenceKey:storeName", "").orEmpty())
+    }
+    var usingPreviousOrganization by rememberSaveable(organizationPreferenceKey) { mutableStateOf(true) }
     var showOrganizationPicker by rememberSaveable { mutableStateOf(false) }
     var inspectionDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var checkResult by remember { mutableStateOf(TerminalHazardCatalog.RESULT_CLEARED) }
@@ -167,20 +178,22 @@ fun TerminalHazardFormScreen(
     )
     val storefrontWatermarkReady = storefrontMissingFields.isEmpty()
     val organizationSummary = buildString {
-        append(inspectionRegionName.ifBlank { "公司级（未分配片区）" })
+        append(inspectionRegionName.ifBlank { "请选择检查片区和门店" })
         if (inspectionStoreName.isNotBlank()) append(" · $inspectionStoreName")
     }
-    val usingDefaultOrganization = inspectionRegionId == cloudSettings.regionId &&
-        inspectionStoreId == cloudSettings.storeId
-
     LaunchedEffect(cloudSettings.userId) {
-        if (editRecordId == 0L) {
-            inspectionRegionId = cloudSettings.regionId
-            inspectionRegionName = cloudSettings.regionName
-            inspectionStoreId = cloudSettings.storeId
-            inspectionStoreName = cloudSettings.storeName
-        }
         viewModel.refreshOrganizationOptions()
+    }
+
+    LaunchedEffect(organizationOptions, organizationOptionsLoaded, inspectionRegionId, inspectionStoreId) {
+        if (organizationOptionsLoaded) {
+            val region = organizationOptions.regions.find { it.id == inspectionRegionId }
+            val store = organizationOptions.stores.find { it.id == inspectionStoreId && it.regionId == region?.id }
+            inspectionRegionId = region?.id ?: 0L
+            inspectionRegionName = region?.name.orEmpty()
+            inspectionStoreId = store?.id ?: 0L
+            inspectionStoreName = store?.name.orEmpty()
+        }
     }
 
     LaunchedEffect(editRecordId) {
@@ -199,10 +212,11 @@ fun TerminalHazardFormScreen(
                     locationAccuracyMeters = record.locationAccuracyMeters
                     locationCapturedAt = record.locationCapturedAt
                     inspectorName = record.inspectorName
-                    inspectionRegionId = record.regionId.takeIf { it > 0L } ?: cloudSettings.regionId
-                    inspectionRegionName = record.regionName.ifBlank { cloudSettings.regionName }
-                    inspectionStoreId = record.storeId.takeIf { it > 0L } ?: cloudSettings.storeId
-                    inspectionStoreName = record.storeName.ifBlank { cloudSettings.storeName }
+                    inspectionRegionId = record.regionId
+                    inspectionRegionName = record.regionName
+                    inspectionStoreId = record.storeId
+                    inspectionStoreName = record.storeName
+                    usingPreviousOrganization = false
                     inspectionDate = record.inspectionDate
                     checkResult = record.checkResult
                     originalCheckResult = record.checkResult
@@ -401,6 +415,21 @@ fun TerminalHazardFormScreen(
         resultToSave: String = checkResult,
         rectificationDateToSave: Long = rectificationDate
     ) {
+        if (!organizationOptionsLoaded) {
+            Toast.makeText(context, "正在获取检查片区和门店，请稍后再提交", Toast.LENGTH_SHORT).show()
+            viewModel.refreshOrganizationOptions()
+            showOrganizationPicker = true
+            return
+        }
+        val selectedRegion = organizationOptions.regions.find { it.id == inspectionRegionId }
+        val selectedStore = organizationOptions.stores.find {
+            it.id == inspectionStoreId && it.regionId == selectedRegion?.id
+        }
+        if (selectedRegion == null || selectedStore == null) {
+            Toast.makeText(context, "请选择本次检查的片区和门店后再提交", Toast.LENGTH_SHORT).show()
+            showOrganizationPicker = true
+            return
+        }
         if (!storefrontWatermarkReady) {
             Toast.makeText(context, "请先填写${storefrontMissingFields.joinToString("、")}", Toast.LENGTH_SHORT).show()
             return
@@ -544,11 +573,13 @@ fun TerminalHazardFormScreen(
                             )
                             InspectionOrganizationRow(
                                 summary = organizationSummary,
-                                usingDefault = usingDefaultOrganization,
+                                usingPrevious = usingPreviousOrganization,
                                 loading = organizationOptionsLoading,
-                                canChange = organizationOptions.regions.isNotEmpty(),
-                                hasAssignedRegion = inspectionRegionId > 0L,
-                                onChange = { showOrganizationPicker = true }
+                                complete = inspectionRegionId > 0L && inspectionStoreId > 0L,
+                                onChange = {
+                                    viewModel.refreshOrganizationOptions()
+                                    showOrganizationPicker = true
+                                }
                             )
                             IOSClickableRow(
                                 label = "检查日期",
@@ -858,6 +889,7 @@ fun TerminalHazardFormScreen(
         OrganizationPickerDialog(
             options = organizationOptions,
             loading = organizationOptionsLoading,
+            loaded = organizationOptionsLoaded,
             initialRegionId = inspectionRegionId,
             initialStoreId = inspectionStoreId,
             onDismiss = { showOrganizationPicker = false },
@@ -866,6 +898,13 @@ fun TerminalHazardFormScreen(
                 inspectionRegionName = regionName
                 inspectionStoreId = storeId
                 inspectionStoreName = storeName
+                usingPreviousOrganization = false
+                prefs.edit()
+                    .putLong("$organizationPreferenceKey:regionId", regionId)
+                    .putString("$organizationPreferenceKey:regionName", regionName)
+                    .putLong("$organizationPreferenceKey:storeId", storeId)
+                    .putString("$organizationPreferenceKey:storeName", storeName)
+                    .apply()
                 showOrganizationPicker = false
             }
         )
@@ -897,10 +936,9 @@ fun TerminalHazardFormScreen(
 @Composable
 private fun InspectionOrganizationRow(
     summary: String,
-    usingDefault: Boolean,
+    usingPrevious: Boolean,
     loading: Boolean,
-    canChange: Boolean,
-    hasAssignedRegion: Boolean,
+    complete: Boolean,
     onChange: () -> Unit
 ) {
     Row(
@@ -916,22 +954,22 @@ private fun InspectionOrganizationRow(
             Text(summary, style = MaterialTheme.typography.bodyLarge, color = InkPrimary)
             Text(
                 when {
-                    !hasAssignedRegion -> "尚未配置账号归属，当前按公司级记录"
-                    usingDefault -> "已自动使用账号默认归属"
-                    else -> "仅本条记录使用此归属"
+                    !complete -> "必选"
+                    usingPrevious -> "沿用上次选择"
+                    else -> "本次检查"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (usingDefault || !hasAssignedRegion) GrayTertiaryText else OrangeAccent
+                color = if (complete) GrayTertiaryText else OrangeAccent
             )
         }
-        TextButton(onClick = onChange, enabled = !loading && canChange) {
+        TextButton(onClick = onChange, enabled = !loading) {
             Text(
                 when {
                     loading -> "加载中"
-                    canChange -> "变更"
-                    else -> "未配置"
+                    complete -> "更换"
+                    else -> "选择"
                 },
-                color = if (canChange) BrandGreenStrong else GrayTertiaryText,
+                color = BrandGreenStrong,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -943,6 +981,7 @@ private fun InspectionOrganizationRow(
 private fun OrganizationPickerDialog(
     options: CloudOrganizationOptions,
     loading: Boolean,
+    loaded: Boolean,
     initialRegionId: Long,
     initialStoreId: Long,
     onDismiss: () -> Unit,
@@ -954,27 +993,24 @@ private fun OrganizationPickerDialog(
     val availableStores = options.stores.filter { it.regionId == regionId }
     val selectedStore = availableStores.find { it.id == storeId }
     val regionNames = options.regions.map { it.name }
-    val regionLevelLabel = "片区级（不指定门店）"
-    val storeNames = listOf(regionLevelLabel) + availableStores.map { it.name }
+    val storeNames = availableStores.map { it.name }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("变更本次检查归属") },
+        title = { Text("选择检查片区和门店") },
         text = {
             Column {
-                Text(
-                    "默认使用账号所属片区和门店。这里的变更只影响本条检查记录。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GraySecondaryText,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-                if (loading && options.regions.isEmpty()) {
+                if (loading) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(20.dp),
                         horizontalArrangement = Arrangement.Center
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), color = BrandGreen)
                     }
+                } else if (!loaded) {
+                    Text("片区和门店未加载成功，请检查网络后重试。", color = OrangeAccent)
+                } else if (options.regions.isEmpty()) {
+                    Text("暂无可选片区，请联系管理员在后台录入。", color = OrangeAccent)
                 } else {
                     IOSDropdownRow(
                         label = "片区",
@@ -988,13 +1024,17 @@ private fun OrganizationPickerDialog(
                     )
                     IOSDropdownRow(
                         label = "门店",
-                        value = selectedStore?.name ?: regionLevelLabel,
+                        value = selectedStore?.name.orEmpty(),
                         options = storeNames,
                         onSelect = { name ->
                             storeId = availableStores.firstOrNull { it.name == name }?.id ?: 0L
                         },
-                        showDivider = false
+                        showDivider = false,
+                        required = true
                     )
+                    if (selectedRegion != null && availableStores.isEmpty()) {
+                        Text("该片区暂无可用门店，请联系管理员。", color = OrangeAccent)
+                    }
                 }
             }
         },
@@ -1011,9 +1051,9 @@ private fun OrganizationPickerDialog(
                         selectedStore?.name.orEmpty()
                     )
                 },
-                enabled = regionId > 0L
+                enabled = loaded && !loading && selectedRegion != null && selectedStore != null
             ) {
-                Text("用于本次检查")
+                Text("确认选择")
             }
         }
     )

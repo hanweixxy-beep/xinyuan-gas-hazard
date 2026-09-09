@@ -13,8 +13,8 @@ require dirname(__DIR__) . '/app/Core/Autoloader.php';
 Autoloader::register(dirname(__DIR__) . '/app');
 
 $database = (string) ($argv[1] ?? '');
-if (!preg_match('/^[a-zA-Z0-9_]+$/', $database)) {
-    throw new RuntimeException('Pass a temporary database name as the first argument.');
+if (!preg_match('/^xinyuan_test_[a-zA-Z0-9_]+$/', $database)) {
+    throw new RuntimeException('Pass an isolated database name starting with xinyuan_test_.');
 }
 
 $pdo = new PDO(
@@ -35,11 +35,7 @@ $admin = new AdminService($companies, $organization, $users);
 $records = new RecordRepository($pdo);
 $recordService = new RecordService($records, $organization);
 
-$company = $pdo->query('SELECT id FROM companies ORDER BY id ASC LIMIT 1')->fetch();
-if (!$company) {
-    throw new RuntimeException('The temporary database needs one company.');
-}
-$companyId = (int) $company['id'];
+$companyId = $companies->create('组织测试公司', 'ORG_TEST');
 $actor = ['id' => 0, 'role' => 'hq_admin', 'company_id' => $companyId];
 
 $regionId = $admin->createRegion($actor, ['companyId' => $companyId, 'name' => '集成测试片区']);
@@ -51,7 +47,6 @@ $storeId = $admin->createStore($actor, [
 $phone = '199' . substr((string) time(), -8);
 $userId = $admin->createUser($actor, [
     'companyId' => $companyId,
-    'storeId' => $storeId,
     'name' => '组织测试员',
     'phone' => $phone,
     'role' => 'inspector',
@@ -59,11 +54,11 @@ $userId = $admin->createUser($actor, [
     'password' => 'Temporary-123',
 ]);
 $user = $users->findById($userId);
-if (!$user || (int) $user['region_id'] !== $regionId || (int) $user['store_id'] !== $storeId) {
-    throw new RuntimeException('Store assignment did not derive its parent region.');
+if (!$user || $user['region_id'] !== null || $user['store_id'] !== null) {
+    throw new RuntimeException('An inspector account must be creatable without a region or store.');
 }
 
-$recordId = $recordService->create($user, [
+$recordId = $recordService->submitDraft($user, [
     'clientUuid' => 'organization-integration-' . time(),
     'customerName' => '组织快照测试用户',
     'customerPhone' => '19900000000',
@@ -74,7 +69,9 @@ $recordId = $recordService->create($user, [
     'inspectionDate' => date('Y-m-d'),
     'checkResult' => '隐患已清零',
     'remark' => '',
-    'photos' => [],
+    'photos' => ['storefront' => [['filePath' => 'uploads/organization-test.jpg']]],
+    'regionId' => $regionId,
+    'storeId' => $storeId,
 ]);
 $record = $records->findForUser($recordId, $user);
 if (!$record || (int) $record['region_id'] !== $regionId || (int) $record['store_id'] !== $storeId) {
@@ -98,11 +95,11 @@ $overridePayload = [
     'inspectionDate' => date('Y-m-d'),
     'checkResult' => '隐患已清零',
     'remark' => '',
-    'photos' => [],
+    'photos' => ['storefront' => [['filePath' => 'uploads/organization-test.jpg']]],
     'regionId' => $otherRegionId,
     'storeId' => $otherStoreId,
 ];
-$overrideRecordId = $recordService->create($user, $overridePayload);
+$overrideRecordId = $recordService->submitDraft($user, $overridePayload);
 $overrideRecord = $records->findForUser($overrideRecordId, $user);
 if (!$overrideRecord
     || (int) $overrideRecord['region_id'] !== $otherRegionId
@@ -121,7 +118,7 @@ if (!in_array($overrideRecordId, $filteredIds, true) || in_array($recordId, $fil
 
 $mismatchRejected = false;
 try {
-    $recordService->create($user, array_merge($overridePayload, [
+    $recordService->submitDraft($user, array_merge($overridePayload, [
         'clientUuid' => 'organization-mismatch-' . time(),
         'regionId' => $regionId,
     ]));
@@ -144,33 +141,77 @@ if (array_filter($activeOptions['stores'], static fn (array $store): bool => (in
 }
 $pdo->prepare("UPDATE regions SET status = 'active' WHERE id = :id")->execute(['id' => $otherRegionId]);
 
-$pdo->prepare('UPDATE users SET region_id = NULL, store_id = NULL WHERE id = :id')->execute(['id' => $userId]);
-$unassignedUser = $users->findById($userId);
-$companyLevelRecordId = $recordService->create($unassignedUser, array_merge($overridePayload, [
-    'clientUuid' => 'organization-company-level-' . time(),
-    'regionId' => null,
-    'storeId' => null,
-]));
-$companyLevelRecord = $records->findForUser($companyLevelRecordId, $unassignedUser);
-if (!$companyLevelRecord || $companyLevelRecord['region_id'] !== null || $companyLevelRecord['store_id'] !== null) {
-    throw new RuntimeException('An unassigned legacy account must remain able to create a company-level record.');
+// Obsolete account assignments must never supply missing inspection fields.
+$pdo->prepare('UPDATE users SET region_id = :region, store_id = :store WHERE id = :id')->execute([
+    'region' => $regionId, 'store' => $storeId, 'id' => $userId,
+]);
+$legacyAssignedUser = $users->findById($userId);
+foreach ([[null, null], [$regionId, null], [null, $storeId]] as [$missingRegion, $missingStore]) {
+    $rejected = false;
+    try {
+        $recordService->submitDraft($legacyAssignedUser, array_merge($overridePayload, [
+            'clientUuid' => 'organization-incomplete-' . bin2hex(random_bytes(4)),
+            'regionId' => $missingRegion,
+            'storeId' => $missingStore,
+        ]));
+    } catch (HttpException $exception) {
+        $rejected = $exception->status() === 422;
+    }
+    if (!$rejected) throw new RuntimeException('Both region and store must be selected for a new inspection.');
 }
 
+$legacyPayload = $overridePayload;
+unset($legacyPayload['regionId'], $legacyPayload['storeId']);
+$legacyPayload['clientUuid'] = 'organization-legacy-' . time();
+$companyLevelRecordId = $recordService->create($legacyAssignedUser, $legacyPayload);
+$companyLevelRecord = $records->findForUser($companyLevelRecordId, $legacyAssignedUser);
+if (!$companyLevelRecord || $companyLevelRecord['region_id'] !== null || $companyLevelRecord['store_id'] !== null) {
+    throw new RuntimeException('Legacy imports must preserve absent organization fields without account fallback.');
+}
+
+$draftPayload = array_merge($legacyPayload, ['clientUuid' => 'organization-draft-' . time()]);
+$draftId = $recordService->saveDraft($user, $draftPayload);
+$draftQuery = $pdo->prepare('SELECT record_state, store_id FROM inspection_records WHERE id = :id');
+$draftQuery->execute(['id' => $draftId]);
+$draft = $draftQuery->fetch();
+if (!$draft || $draft['record_state'] !== 'draft' || $draft['store_id'] !== null) {
+    throw new RuntimeException('An incomplete inspection may still be saved as a draft.');
+}
+$finalId = $recordService->submitDraft($user, array_merge($draftPayload, [
+    'regionId' => $otherRegionId, 'storeId' => $otherStoreId,
+]));
+if ($finalId !== $draftId || (int) $records->findForUser($finalId, $user)['store_id'] !== $otherStoreId) {
+    throw new RuntimeException('Selecting organization must allow the existing draft to be submitted.');
+}
+
+$otherCompanyId = $companies->create('另一测试公司', 'ORG_OTHER');
+$foreignRegionId = $admin->createRegion($actor, ['companyId' => $otherCompanyId, 'name' => '其他公司片区']);
+$foreignStoreId = $admin->createStore($actor, ['regionId' => $foreignRegionId, 'name' => '其他公司门店']);
 $rejected = false;
 try {
-    $admin->createUser($actor, [
-        'companyId' => $companyId,
-        'name' => '未分配测试员',
-        'phone' => '198' . substr((string) time(), -8),
-        'role' => 'inspector',
-        'loginScope' => 'app',
-        'password' => 'Temporary-123',
-    ]);
+    $recordService->submitDraft($user, array_merge($overridePayload, [
+        'clientUuid' => 'organization-foreign-' . time(),
+        'regionId' => $foreignRegionId, 'storeId' => $foreignStoreId,
+    ]));
 } catch (HttpException $exception) {
     $rejected = $exception->status() === 422;
 }
-if (!$rejected) {
-    throw new RuntimeException('A new non-HQ account without a region or store must be rejected.');
+if (!$rejected) throw new RuntimeException('Inspection selection must remain inside the current company.');
+
+foreach (['company_admin', 'hq_admin'] as $index => $role) {
+    $createdId = $admin->createUser($actor, [
+        'companyId' => $companyId, 'name' => '无绑定管理员',
+        'phone' => '198' . $index . substr((string) time(), -7),
+        'role' => $role, 'password' => 'Temporary-123',
+    ]);
+    $created = $users->findById($createdId);
+    if ($created['region_id'] !== null || $created['store_id'] !== null) {
+        throw new RuntimeException('Manager accounts must not require region or store binding.');
+    }
+}
+$admin->updateUserAccess($actor, $userId, ['loginScope' => 'both', 'canViewCompanyRecords' => true]);
+if ((int) $users->findById($userId)['can_view_company_records'] !== 1) {
+    throw new RuntimeException('Account access must be editable independently of inspection organization.');
 }
 
 echo "Organization integration test passed.\n";
