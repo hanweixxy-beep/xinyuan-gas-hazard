@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Core\HttpException;
 use PDO;
 
 final class OrganizationRepository
@@ -93,21 +94,21 @@ final class OrganizationRepository
         return $store ?: null;
     }
 
-    public function regionNameExists(int $companyId, string $name): bool
+    public function regionNameExists(int $companyId, string $name, int $excludeId = 0): bool
     {
         $stmt = $this->pdo->prepare(
-            'SELECT 1 FROM regions WHERE company_id = :company_id AND name = :name LIMIT 1'
+            'SELECT 1 FROM regions WHERE company_id = :company_id AND name = :name AND id <> :exclude_id LIMIT 1'
         );
-        $stmt->execute(['company_id' => $companyId, 'name' => $name]);
+        $stmt->execute(['company_id' => $companyId, 'name' => $name, 'exclude_id' => $excludeId]);
         return (bool) $stmt->fetchColumn();
     }
 
-    public function storeNameExists(int $regionId, string $name): bool
+    public function storeNameExists(int $regionId, string $name, int $excludeId = 0): bool
     {
         $stmt = $this->pdo->prepare(
-            'SELECT 1 FROM stores WHERE region_id = :region_id AND name = :name LIMIT 1'
+            'SELECT 1 FROM stores WHERE region_id = :region_id AND name = :name AND id <> :exclude_id LIMIT 1'
         );
-        $stmt->execute(['region_id' => $regionId, 'name' => $name]);
+        $stmt->execute(['region_id' => $regionId, 'name' => $name, 'exclude_id' => $excludeId]);
         return (bool) $stmt->fetchColumn();
     }
 
@@ -133,6 +134,49 @@ final class OrganizationRepository
             'address' => $address,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function updateRegion(int $id, string $name): void
+    {
+        try {
+            $stmt = $this->pdo->prepare('UPDATE regions SET name = :name WHERE id = :id');
+            $stmt->execute(['id' => $id, 'name' => $name]);
+        } catch (\PDOException $exception) {
+            if (($exception->errorInfo[1] ?? 0) === 1062) {
+                throw new HttpException(422, '该公司已存在同名片区。');
+            }
+            throw $exception;
+        }
+    }
+
+    public function updateStore(int $id, int $regionId, string $name, string $address): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+            // Serialize reparenting with inspection writes so historical pairs stay intact.
+            $current = $this->pdo->prepare('SELECT region_id FROM stores WHERE id = :id FOR UPDATE');
+            $current->execute(['id' => $id]);
+            $previousRegionId = $current->fetchColumn();
+            if ($previousRegionId === false) {
+                throw new HttpException(404, '门店不存在。');
+            }
+            if ((int) $previousRegionId !== $regionId) {
+                $records = $this->pdo->prepare('SELECT 1 FROM inspection_records WHERE store_id = :id LIMIT 1');
+                $records->execute(['id' => $id]);
+                if ($records->fetchColumn()) {
+                    throw new HttpException(422, '该门店已有检查记录或草稿，不能更换所属片区；名称和地址仍可修改。');
+                }
+            }
+            $stmt = $this->pdo->prepare('UPDATE stores SET region_id = :region_id, name = :name, address = :address WHERE id = :id');
+            $stmt->execute(['id' => $id, 'region_id' => $regionId, 'name' => $name, 'address' => $address]);
+            $this->pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            if ($exception instanceof \PDOException && ($exception->errorInfo[1] ?? 0) === 1062) {
+                throw new HttpException(422, '该片区已存在同名门店。');
+            }
+            throw $exception;
+        }
     }
 
     public function updateRegionStatus(int $id, string $status): void

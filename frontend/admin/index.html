@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f1e9">
   <title>鑫远燃气隐患排查后台</title>
   <link rel="stylesheet" href="./styles.css?v=20260903-admin-org-filter-1">
-  <link rel="stylesheet" href="./redesign.css?v=20260903-admin-org-filter-1">
+  <link rel="stylesheet" href="./redesign.css?v=20260908-organization-edit">
 </head>
 <body>
   <main class="layout">
@@ -300,8 +300,25 @@
       </div>
     </section>
 
+    <section id="organizationEditModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-organization-edit-close="1"></div>
+      <div class="modal-panel small-modal" role="dialog" aria-modal="true" aria-labelledby="organizationEditTitle">
+        <div class="modal-head"><h2 id="organizationEditTitle">编辑片区</h2><button id="closeOrganizationEditBtn" type="button" aria-label="关闭编辑窗口">关闭</button></div>
+        <form id="organizationEditForm">
+          <fieldset id="organizationEditFields">
+            <label>所属公司<input name="company" readonly></label>
+            <label id="organizationEditRegionField">所属片区<select name="regionId"></select></label>
+            <label><span id="organizationEditNameLabel">片区名称</span><input name="name" required maxlength="80" autocomplete="off"></label>
+            <label id="organizationEditAddressField">门店地址<textarea name="address" rows="3" maxlength="255"></textarea></label>
+          </fieldset>
+          <p id="organizationEditError" role="alert"></p>
+          <div class="organization-edit-buttons"><button id="cancelOrganizationEditBtn" type="button">取消</button><button type="submit" class="primary">保存修改</button></div>
+        </form>
+      </div>
+    </section>
+
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260907-inspection-organization"></script>
+  <script type="module" src="./app.js?v=20260908-organization-edit"></script>
 </body>
 </html>

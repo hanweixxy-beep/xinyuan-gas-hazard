@@ -297,6 +297,14 @@ tbody tr:hover { background: rgba(234,240,244,.42); }
 .modal-panel { position: relative; width: min(460px, calc(100vw - 40px)); max-height: 90vh; overflow: auto; padding: 22px; border-radius: 16px; background: var(--canvas); box-shadow: var(--shadow); }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .modal-head h2 { margin: 0; }
+.organization-actions { display: flex; gap: 4px; white-space: nowrap; }
+#organizationEditForm { display: grid; gap: 14px; margin: 0; padding: 0; }
+#organizationEditFields { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
+#organizationEditFields label { margin: 0; }
+#organizationEditFields input, #organizationEditFields select, #organizationEditFields textarea { border-color: var(--line); }
+#organizationEditError { margin: 0; color: var(--red); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+#organizationEditError:empty { display: none; }
+.organization-edit-buttons { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; margin-top: 4px; }
 
 .photo-viewer { position: fixed; z-index: 120; inset: 0; }
 .photo-viewer-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.9); }

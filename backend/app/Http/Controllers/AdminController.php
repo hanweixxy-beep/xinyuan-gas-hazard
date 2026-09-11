@@ -48,6 +48,22 @@ final class AdminController
     }
 
     /** @param array<string, string> $params @return array<string, mixed> */
+    public function updateRegion(Request $request, array $params): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        $this->admin->updateRegion($user, (int) $params['id'], $request->json());
+        return ['id' => (int) $params['id']];
+    }
+
+    /** @param array<string, string> $params @return array<string, mixed> */
+    public function updateStore(Request $request, array $params): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        $this->admin->updateStore($user, (int) $params['id'], $request->json());
+        return ['id' => (int) $params['id']];
+    }
+
+    /** @param array<string, string> $params @return array<string, mixed> */
     public function updateRegionStatus(Request $request, array $params): array
     {
         $user = $this->auth->requireUser($request->bearerToken());

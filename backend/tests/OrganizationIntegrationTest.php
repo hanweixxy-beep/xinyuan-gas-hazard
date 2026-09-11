@@ -214,4 +214,82 @@ if ((int) $users->findById($userId)['can_view_company_records'] !== 1) {
     throw new RuntimeException('Account access must be editable independently of inspection organization.');
 }
 
-echo "Organization integration test passed.\n";
+$expectHttp = static function (callable $action, int $status): void {
+    try {
+        $action();
+    } catch (HttpException $exception) {
+        if ($exception->status() === $status) return;
+        throw $exception;
+    }
+    throw new RuntimeException("Expected HTTP {$status} was not raised.");
+};
+$companyAdmin = ['id' => $userId, 'role' => 'company_admin', 'company_id' => $companyId];
+$admin->updateRegion($companyAdmin, $regionId, ['name' => '修正后的片区']);
+$admin->updateRegion($companyAdmin, $regionId, ['name' => '修正后的片区']);
+$admin->updateStore($companyAdmin, $storeId, ['name' => '修正后的门店', 'address' => '修正地址', 'regionId' => $regionId]);
+$renamed = $records->findForUser($recordId, $user);
+if ($renamed['region_name'] !== '修正后的片区' || $renamed['store_name'] !== '修正后的门店'
+    || (int) $renamed['region_id'] !== $regionId || (int) $renamed['store_id'] !== $storeId) {
+    throw new RuntimeException('Renaming must update labels without changing inspection IDs or ownership.');
+}
+$options = $recordService->organizationOptions($user);
+if (!in_array('修正后的片区', array_column($options['regions'], 'name'), true)
+    || !in_array('修正后的门店', array_column($options['stores'], 'name'), true)) {
+    throw new RuntimeException('Mobile options must show edited organization labels.');
+}
+$export = (new App\Services\ExportService())->recordsWorkbookFile([$renamed]);
+try {
+    $zip = new ZipArchive();
+    if ($zip->open($export) !== true) throw new RuntimeException('Could not read the edited organization export.');
+    $sheet = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+    $zip->close();
+    if (!str_contains($sheet, '修正后的片区') || !str_contains($sheet, '修正后的门店')) {
+        throw new RuntimeException('Exports must use the corrected organization names.');
+    }
+} finally {
+    @unlink($export);
+}
+
+$expectHttp(fn () => $admin->updateRegion($user, $regionId, ['name' => '越权修改']), 403);
+$expectHttp(fn () => $admin->updateStore($user, $storeId, ['name' => '越权修改']), 403);
+$expectHttp(fn () => $admin->updateRegion($companyAdmin, $foreignRegionId, ['name' => '跨公司修改']), 403);
+$expectHttp(fn () => $admin->updateStore($companyAdmin, $foreignStoreId, ['name' => '跨公司修改']), 403);
+$expectHttp(fn () => $admin->updateRegion($actor, 999999999, ['name' => '不存在']), 404);
+$expectHttp(fn () => $admin->updateStore($actor, 999999999, ['name' => '不存在']), 404);
+$expectHttp(fn () => $admin->updateRegion($actor, $regionId, ['name' => '  ']), 422);
+$expectHttp(fn () => $admin->updateRegion($actor, $regionId, ['name' => str_repeat('长', 81)]), 422);
+$expectHttp(fn () => $admin->updateStore($actor, $storeId, ['name' => '  ']), 422);
+$expectHttp(fn () => $admin->updateStore($actor, $storeId, ['name' => str_repeat('长', 121)]), 422);
+$expectHttp(fn () => $admin->updateStore($actor, $storeId, ['name' => '门店', 'address' => str_repeat('长', 256)]), 422);
+$expectHttp(fn () => $admin->updateRegion($actor, $otherRegionId, ['name' => '修正后的片区']), 422);
+$expectHttp(fn () => $admin->updateRegion($actor, $regionId, ['name' => '片区', 'companyId' => $otherCompanyId]), 422);
+$expectHttp(fn () => $admin->updateStore($actor, $storeId, ['name' => '门店', 'regionId' => $foreignRegionId]), 422);
+$expectHttp(fn () => $admin->updateStore($actor, $storeId, ['name' => '门店', 'companyId' => $otherCompanyId]), 422);
+
+$unusedStoreId = $admin->createStore($actor, ['regionId' => $regionId, 'name' => '尚未使用门店']);
+$expectHttp(fn () => $admin->updateStore($actor, $unusedStoreId, ['name' => '修正后的门店']), 422);
+$admin->updateStore($actor, $unusedStoreId, ['name' => '调整片区门店', 'regionId' => $otherRegionId, 'address' => '新地址']);
+if ((int) $organization->findStore($unusedStoreId)['region_id'] !== $otherRegionId) {
+    throw new RuntimeException('An unused store may move to another region in its own company.');
+}
+// A form opened before a store move must not insert the old region/store pair.
+$stalePayload = array_merge($overridePayload, [
+    'clientUuid' => 'organization-stale-' . time(), 'regionId' => $regionId, 'storeId' => $unusedStoreId,
+]);
+$expectHttp(fn () => $records->create($user, $stalePayload), 409);
+$expectHttp(fn () => $records->saveDraft($user, $stalePayload), 409);
+$expectHttp(fn () => $admin->updateStore($actor, $storeId, ['name' => '不应保存', 'regionId' => $otherRegionId]), 422);
+$expectHttp(fn () => $admin->updateStore($actor, $otherStoreId, ['name' => '不应保存', 'regionId' => $regionId]), 422);
+if ($organization->findStore($storeId)['name'] !== '修正后的门店'
+    || (int) $organization->findStore($storeId)['region_id'] !== $regionId) {
+    throw new RuntimeException('Rejected edits must leave the existing store unchanged.');
+}
+$admin->updateRegionStatus($actor, $regionId, 'disabled');
+$admin->updateRegion($actor, $regionId, ['name' => '停用片区修正']);
+$admin->updateStore($actor, $storeId, ['name' => '停用门店修正', 'regionId' => $regionId]);
+$expectHttp(fn () => $admin->updateStore($actor, $unusedStoreId, ['name' => '不能转入', 'regionId' => $regionId]), 422);
+if ($organization->findStore($storeId)['status'] !== 'disabled') {
+    throw new RuntimeException('Editing information must not implicitly enable a store.');
+}
+
+echo "Organization integration and editing tests passed.\n";

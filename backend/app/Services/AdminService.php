@@ -70,6 +70,60 @@ final class AdminService
         return $this->organization->createStore((int) $region['company_id'], $regionId, $name, $address);
     }
 
+    /** @param array<string, mixed> $actor @param array<string, mixed> $payload */
+    public function updateRegion(array $actor, int $id, array $payload): void
+    {
+        $this->requireManager($actor);
+        $region = $this->organization->findRegion($id);
+        if (!$region) throw new HttpException(404, '片区不存在。');
+        $companyId = (int) $region['company_id'];
+        $this->assertCompanyAccessible($actor, $companyId);
+        if (isset($payload['companyId']) && (int) $payload['companyId'] !== $companyId) {
+            throw new HttpException(422, '片区不能转移到其他公司。');
+        }
+        $name = trim((string) ($payload['name'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 80) {
+            throw new HttpException(422, '片区名称不能为空，且不能超过 80 个字符。');
+        }
+        if ($this->organization->regionNameExists($companyId, $name, $id)) {
+            throw new HttpException(422, '该公司已存在同名片区。');
+        }
+        $this->organization->updateRegion($id, $name);
+    }
+
+    /** @param array<string, mixed> $actor @param array<string, mixed> $payload */
+    public function updateStore(array $actor, int $id, array $payload): void
+    {
+        $this->requireManager($actor);
+        $store = $this->organization->findStore($id);
+        if (!$store) throw new HttpException(404, '门店不存在。');
+        $companyId = (int) $store['company_id'];
+        $this->assertCompanyAccessible($actor, $companyId);
+        if (isset($payload['companyId']) && (int) $payload['companyId'] !== $companyId) {
+            throw new HttpException(422, '门店不能转移到其他公司。');
+        }
+        $regionId = (int) ($payload['regionId'] ?? $store['region_id']);
+        $region = $this->organization->findRegion($regionId);
+        if (!$region || (int) $region['company_id'] !== $companyId) {
+            throw new HttpException(422, '请选择该公司下的片区。');
+        }
+        if ($regionId !== (int) $store['region_id'] && $region['status'] !== 'active') {
+            throw new HttpException(422, '不能调整到已停用的片区。');
+        }
+        $name = trim((string) ($payload['name'] ?? ''));
+        $address = trim((string) ($payload['address'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 120) {
+            throw new HttpException(422, '门店名称不能为空，且不能超过 120 个字符。');
+        }
+        if (mb_strlen($address) > 255) {
+            throw new HttpException(422, '门店地址不能超过 255 个字符。');
+        }
+        if ($this->organization->storeNameExists($regionId, $name, $id)) {
+            throw new HttpException(422, '该片区已存在同名门店。');
+        }
+        $this->organization->updateStore($id, $regionId, $name, $address);
+    }
+
     /** @param array<string, mixed> $actor */
     public function updateRegionStatus(array $actor, int $id, string $status): void
     {

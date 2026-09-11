@@ -26,9 +26,26 @@ async function mockApi(page, fixture) {
     };
     else if (endpoint === '/admin/companies') data = { companies: [{ id: 1, name: '测试公司', code: 'TEST', status: 'active' }] };
     else if (endpoint === '/admin/organization') data = {
-      regions: regions.map((region) => ({ ...region, company_id: 1, company_name: '测试公司', status: 'active' })),
-      stores: stores.map((store) => ({ ...store, region_id: store.regionId, company_id: 1, status: 'active' })),
+      regions: regions.map((region) => ({ ...region, ...fixture.editedRegions?.[region.id], company_id: 1, company_name: '测试公司', status: 'active' })),
+      stores: stores.map((store) => ({ ...store, region_id: store.regionId, company_id: 1, status: 'active', ...fixture.editedStores?.[store.id] })),
     };
+    else if (/^\/admin\/(regions|stores)\/\d+$/.test(endpoint) && method === 'POST') {
+      if (fixture.rejectNextEdit) {
+        fixture.rejectNextEdit = false;
+        await route.fulfill({ status: 422, json: { ok: false, message: '该公司已存在同名片区。' } });
+        return;
+      }
+      const payload = route.request().postDataJSON();
+      const id = Number(endpoint.split('/').pop());
+      assert(!('companyId' in payload));
+      fixture.editCalls = (fixture.editCalls || 0) + 1;
+      if (endpoint.includes('/regions/')) {
+        fixture.editedRegions = { ...fixture.editedRegions, [id]: payload };
+      } else {
+        fixture.editedStores = { ...fixture.editedStores, [id]: { ...payload, region_id: payload.regionId } };
+      }
+      data = { id };
+    }
     else if (endpoint === '/admin/users' && method === 'POST') {
       const payload = route.request().postDataJSON();
       assert(!('regionId' in payload) && !('storeId' in payload));
@@ -134,9 +151,41 @@ async function adminCheck(browser, origin) {
   await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('账号权限已更新'));
   assert.equal(fixture.updatedAccess.loginScope, 'both');
   await page.locator('#userForm').screenshot({ path: path.join(output, 'admin-account-form.png') });
+  const regionEdit = page.locator('[data-action="region-edit"][data-id="1"]');
+  await regionEdit.click();
+  assert.equal(await page.locator('#organizationEditForm [name="name"]').inputValue(), '测试片区1');
+  await page.locator('#organizationEditForm [name="name"]').fill('取消的修改');
+  await page.locator('#cancelOrganizationEditBtn').click();
+  assert.equal(fixture.editCalls || 0, 0);
+  await regionEdit.click();
+  assert.equal(await page.locator('#organizationEditForm [name="name"]').inputValue(), '测试片区1');
+  await page.locator('#organizationEditForm [name="name"]').fill('修正后的片区');
+  fixture.rejectNextEdit = true;
+  await page.locator('#organizationEditForm button[type="submit"]').click();
+  await page.locator('#organizationEditError').filter({ hasText: '同名片区' }).waitFor();
+  assert.equal(await page.locator('#organizationEditModal').getAttribute('aria-hidden'), 'false');
+  assert.equal(await page.locator('#organizationEditForm [name="name"]').inputValue(), '修正后的片区');
+  await page.locator('#organizationEditForm button[type="submit"]').click();
+  await page.locator('#organizationEditModal').waitFor({ state: 'hidden' });
+  assert.match(await regionEdit.locator('xpath=ancestor::tr').textContent(), /修正后的片区/);
+  assert.equal(await page.locator('#filterRegionSelect option[value="1"]').textContent(), '修正后的片区');
+  await page.locator('[data-action="store-edit"][data-id="11"]').click();
+  await page.locator('#organizationEditForm [name="regionId"]').selectOption('2');
+  await page.locator('#organizationEditForm [name="name"]').fill('修正后的门店');
+  await page.locator('#organizationEditForm [name="address"]').fill('修正后的门店地址');
+  await page.locator('#organizationEditModal .modal-panel').screenshot({ path: path.join(output, 'admin-store-edit.png') });
+  await page.locator('#organizationEditForm button[type="submit"]').click();
+  await page.locator('#organizationEditModal').waitFor({ state: 'hidden' });
+  assert.equal(fixture.editedStores[11].region_id, 2);
+  const storeRow = page.locator('[data-action="store-edit"][data-id="11"]').locator('xpath=ancestor::tr');
+  assert.match(await storeRow.textContent(), /修正后的门店地址/);
+  assert.equal(await storeRow.locator('[data-action="store-status"]').count(), 1);
+  await regionEdit.click();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#organizationEditModal').getAttribute('aria-hidden'), 'true');
   assert.deepEqual(errors, []);
   await context.close();
-  return 'Admin: account creation and access updates without organization binding passed';
+  return 'Admin: accounts, region/store editing, cancellation, error recovery and filter refresh passed';
 }
 
 (async () => {

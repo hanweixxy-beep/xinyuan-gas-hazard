@@ -86,6 +86,7 @@ final class RecordRepository
                 }
             }
 
+            $this->lockInspectionStore($payload);
             $stmt = $this->pdo->prepare(
                 "INSERT INTO inspection_records
                  (client_uuid, company_id, region_id, store_id, creator_id, record_state, customer_name, customer_phone, customer_type, customer_address,
@@ -172,6 +173,7 @@ final class RecordRepository
                 return (int) $existing['id'];
             }
 
+            $this->lockInspectionStore($payload);
             $values = [
                 'client_uuid' => $clientUuid,
                 'company_id' => $this->resolveCompanyId($user, $payload),
@@ -432,6 +434,19 @@ final class RecordRepository
     private function resolveCompanyId(array $user, array $payload): int
     {
         return (int) $user['company_id'];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function lockInspectionStore(array $payload): void
+    {
+        $storeId = $this->resolveOrganizationId($payload, 'storeId');
+        if ($storeId === null) return;
+        $stmt = $this->pdo->prepare('SELECT region_id FROM stores WHERE id = :id FOR SHARE');
+        $stmt->execute(['id' => $storeId]);
+        $regionId = $stmt->fetchColumn();
+        if ($regionId === false || (int) $regionId !== $this->resolveOrganizationId($payload, 'regionId')) {
+            throw new HttpException(409, '门店所属片区已变更，请重新选择片区和门店。');
+        }
     }
 
     /** @param array<string, mixed> $payload */

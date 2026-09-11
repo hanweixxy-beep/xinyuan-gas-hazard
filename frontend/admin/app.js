@@ -11,6 +11,8 @@ const state = {
   users: [],
   organizationFiltersLoaded: false,
   accessUserId: 0,
+  organizationEdit: null,
+  organizationSaving: false,
   currentModule: 'home',
   recordPage: 1,
   recordPageSize: 50
@@ -265,6 +267,7 @@ function logout() {
   closeModal();
   closePasswordModal();
   closeAccessModal();
+  closeOrganizationModal(true);
 }
 
 function restore() {
@@ -627,7 +630,7 @@ function renderRegionRows() {
         <td>${escapeHtml(region.company_name || '-')}</td>
         <td>${escapeHtml(region.name)}</td>
         <td><span class="status ${region.status === 'active' ? '' : 'disabled'}">${userStatusText(region.status)}</span></td>
-        <td><button type="button" class="link-button" data-action="region-status" data-id="${region.id}" data-status="${nextStatus}">${region.status === 'active' ? '停用' : '启用'}</button></td>
+        <td><div class="organization-actions"><button type="button" class="link-button" data-action="region-edit" data-id="${region.id}">编辑</button><button type="button" class="link-button" data-action="region-status" data-id="${region.id}" data-status="${nextStatus}">${region.status === 'active' ? '停用' : '启用'}</button></div></td>
       </tr>
     `;
   }).join('') || '<tr><td colspan="4">暂无片区，请先新增</td></tr>';
@@ -643,7 +646,7 @@ function renderStoreRows() {
         <td>${escapeHtml(store.name)}</td>
         <td>${escapeHtml(store.address || '-')}</td>
         <td><span class="status ${store.status === 'active' ? '' : 'disabled'}">${userStatusText(store.status)}</span></td>
-        <td><button type="button" class="link-button" data-action="store-status" data-id="${store.id}" data-status="${nextStatus}">${store.status === 'active' ? '停用' : '启用'}</button></td>
+        <td><div class="organization-actions"><button type="button" class="link-button" data-action="store-edit" data-id="${store.id}">编辑</button><button type="button" class="link-button" data-action="store-status" data-id="${store.id}" data-status="${nextStatus}">${store.status === 'active' ? '停用' : '启用'}</button></div></td>
       </tr>
     `;
   }).join('') || '<tr><td colspan="6">暂无门店，请先新增</td></tr>';
@@ -762,6 +765,88 @@ async function createUser(event) {
     showToast('用户已新增');
     await loadAdminData();
   });
+}
+
+function openOrganizationModal(type, id) {
+  if (!isManager() || state.organizationSaving) return;
+  const item = state[type].find((entry) => Number(entry.id) === Number(id));
+  if (!item) return;
+  state.organizationEdit = { type, id: Number(id) };
+  const isStore = type === 'stores';
+  const form = $('#organizationEditForm');
+  form.reset();
+  $('#organizationEditError').textContent = '';
+  $('#organizationEditTitle').textContent = isStore ? '编辑门店' : '编辑片区';
+  $('#organizationEditNameLabel').textContent = isStore ? '门店名称' : '片区名称';
+  form.elements.name.maxLength = isStore ? 120 : 80;
+  form.elements.name.value = item.name;
+  form.elements.company.value = item.company_name || state.companies.find((company) => Number(company.id) === Number(item.company_id))?.name || '';
+  form.elements.address.value = item.address || '';
+  $('#organizationEditRegionField').classList.toggle('hidden', !isStore);
+  $('#organizationEditAddressField').classList.toggle('hidden', !isStore);
+  form.elements.regionId.required = isStore;
+  form.elements.regionId.disabled = !isStore;
+  if (isStore) {
+    const regions = state.regions.filter((region) => Number(region.company_id) === Number(item.company_id)
+      && (region.status === 'active' || Number(region.id) === Number(item.region_id)));
+    form.elements.regionId.innerHTML = regions.map((region) => `<option value="${Number(region.id)}">${escapeHtml(region.name)}${region.status === 'active' ? '' : '（已停用）'}</option>`).join('');
+    form.elements.regionId.value = String(item.region_id);
+  }
+  const modal = $('#organizationEditModal');
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  form.elements.name.focus();
+}
+
+function closeOrganizationModal(force = false) {
+  if (state.organizationSaving && !force) return;
+  const previous = state.organizationEdit;
+  $('#organizationEditModal').classList.add('hidden');
+  $('#organizationEditModal').setAttribute('aria-hidden', 'true');
+  $('#organizationEditForm').reset();
+  $('#organizationEditError').textContent = '';
+  state.organizationEdit = null;
+  if (previous && !force) {
+    const action = previous.type === 'stores' ? 'store-edit' : 'region-edit';
+    document.querySelector(`[data-action="${action}"][data-id="${previous.id}"]`)?.focus();
+  }
+}
+
+async function submitOrganizationEdit(event) {
+  event.preventDefault();
+  if (!state.organizationEdit || state.organizationSaving) return;
+  const { type, id } = state.organizationEdit;
+  const form = event.currentTarget;
+  const payload = { name: form.elements.name.value.trim() };
+  if (type === 'stores') {
+    payload.regionId = Number(form.elements.regionId.value);
+    payload.address = form.elements.address.value.trim();
+  }
+  const submitButton = form.querySelector('button[type="submit"]');
+  $('#organizationEditError').textContent = '';
+  state.organizationSaving = true;
+  $('#organizationEditFields').disabled = true;
+  let saved = false;
+  let refreshed = false;
+  try {
+    await runWithButton(submitButton, '保存中...', async () => {
+      await api(`/admin/${type}/${id}`, { method: 'POST', body: JSON.stringify(payload) });
+      saved = true;
+      try {
+        await loadAdminData();
+        refreshed = true;
+      } catch { /* The edit succeeded even if refreshing the list failed. */ }
+    });
+  } catch (error) {
+    $('#organizationEditError').textContent = error.message;
+  } finally {
+    state.organizationSaving = false;
+    $('#organizationEditFields').disabled = false;
+  }
+  if (saved) {
+    closeOrganizationModal();
+    showToast(refreshed ? `${type === 'stores' ? '门店' : '片区'}信息已更新` : '信息已保存，列表刷新失败，请点击刷新重试。');
+  }
 }
 
 async function updateOrganizationStatus(type, id, status, button = null) {
@@ -1309,13 +1394,15 @@ $('#storeForm').addEventListener('submit', (event) => createStore(event).catch((
 $('#userForm').addEventListener('submit', (event) => createUser(event).catch((error) => showToast(error.message)));
 $('#userRoleSelect').addEventListener('change', renderLoginScopeOptions);
 $('#regionRows').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-action="region-status"]');
+  const button = event.target.closest('[data-action]');
   if (!button) return;
+  if (button.dataset.action === 'region-edit') return openOrganizationModal('regions', button.dataset.id);
   updateOrganizationStatus('regions', button.dataset.id, button.dataset.status, button).catch((error) => showToast(error.message));
 });
 $('#storeRows').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-action="store-status"]');
+  const button = event.target.closest('[data-action]');
   if (!button) return;
+  if (button.dataset.action === 'store-edit') return openOrganizationModal('stores', button.dataset.id);
   updateOrganizationStatus('stores', button.dataset.id, button.dataset.status, button).catch((error) => showToast(error.message));
 });
 $('#userRows').addEventListener('click', (event) => {
@@ -1376,6 +1463,26 @@ $('#accessModal').addEventListener('click', (event) => {
   if (event.target.dataset.accessClose) closeAccessModal();
 });
 $('#accessForm').addEventListener('submit', (event) => submitUserAccess(event).catch((error) => showToast(error.message)));
+$('#organizationEditForm').addEventListener('submit', submitOrganizationEdit);
+$('#closeOrganizationEditBtn').addEventListener('click', () => closeOrganizationModal());
+$('#cancelOrganizationEditBtn').addEventListener('click', () => closeOrganizationModal());
+$('#organizationEditModal').addEventListener('click', (event) => {
+  if (event.target.dataset.organizationEditClose) closeOrganizationModal();
+});
+$('#organizationEditModal').addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.stopPropagation();
+    closeOrganizationModal();
+  }
+  if (event.key === 'Tab') {
+    const controls = [...event.currentTarget.querySelectorAll('button, input, select, textarea')]
+      .filter((element) => !element.matches(':disabled') && element.getClientRects().length);
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closePhotoPreview();
   if (event.key === 'Enter' && !$('#loginPanel').classList.contains('hidden') && event.target.matches('#loginPhone, #loginPassword')) {
