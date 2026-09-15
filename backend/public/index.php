@@ -23,6 +23,7 @@ use App\Services\ExportService;
 use App\Services\FileStorageService;
 use App\Services\RecordService;
 use App\Services\TencentMapService;
+use App\Services\UserBatchService;
 
 require dirname(__DIR__) . '/app/Core/Autoloader.php';
 Autoloader::register(dirname(__DIR__) . '/app');
@@ -44,7 +45,7 @@ $fileStorage = new FileStorageService($config);
 $tencentMapService = new TencentMapService($config);
 
 $authController = new AuthController($authService);
-$adminController = new AdminController($authService, $adminService);
+$adminController = new AdminController($authService, $adminService, new UserBatchService($adminService, $userRepository));
 $catalogController = new CatalogController();
 $recordController = new RecordController($authService, $recordService);
 $fileController = new FileController($authService, $fileStorage);
@@ -68,6 +69,9 @@ $router->add('POST', '/api/admin/stores/{id}', fn (Request $request, array $para
 $router->add('POST', '/api/admin/stores/{id}/status', fn (Request $request, array $params) => $adminController->updateStoreStatus($request, $params));
 $router->add('GET', '/api/admin/users', fn (Request $request) => $adminController->users($request));
 $router->add('POST', '/api/admin/users', fn (Request $request) => $adminController->createUser($request));
+$router->add('GET', '/api/admin/users/import-options', fn (Request $request) => $adminController->userImportOptions($request));
+$router->add('POST', '/api/admin/users/import-preview', fn (Request $request) => $adminController->importUsers($request));
+$router->add('POST', '/api/admin/users/import', fn (Request $request) => $adminController->importUsers($request, true));
 $router->add('POST', '/api/admin/users/{id}/status', fn (Request $request, array $params) => $adminController->updateUserStatus($request, $params));
 $router->add('POST', '/api/admin/users/{id}/access', fn (Request $request, array $params) => $adminController->updateUserAccess($request, $params));
 $router->add('POST', '/api/admin/users/{id}/reset-password', fn (Request $request, array $params) => $adminController->resetPassword($request, $params));

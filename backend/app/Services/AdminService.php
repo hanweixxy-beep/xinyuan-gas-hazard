@@ -195,6 +195,15 @@ final class AdminService
     /** @param array<string, mixed> $actor @param array<string, mixed> $payload */
     public function createUser(array $actor, array $payload): int
     {
+        $user = $this->validateNewUser($actor, $payload);
+        $user['password_hash'] = password_hash($user['password'], PASSWORD_DEFAULT);
+        unset($user['password']);
+        return $this->users->createUser($user);
+    }
+
+    /** @param array<string, mixed> $actor @param array<string, mixed> $payload @return array<string, mixed> */
+    public function validateNewUser(array $actor, array $payload): array
+    {
         $this->requireManager($actor);
         $name = trim((string) ($payload['name'] ?? ''));
         $phone = trim((string) ($payload['phone'] ?? ''));
@@ -216,25 +225,25 @@ final class AdminService
         if (!in_array($loginScope, UserAccess::allowedLoginScopes($role), true)) {
             throw new HttpException(422, '登录权限不正确。');
         }
-        if (mb_strlen($password) < 8) {
-            throw new HttpException(422, '初始密码至少 8 位。');
+        if (mb_strlen($password) < 8 || trim($password) === '' || strlen($password) > 72 || str_contains($password, "\0")) {
+            throw new HttpException(422, '初始密码至少 8 位，不能全为空格，且不能超过 72 字节。');
         }
         if ($this->users->findByPhone($phone)) {
             throw new HttpException(422, '手机号已存在，不能重复创建。');
         }
 
         $this->assertRoleAssignable($actor, $role);
-        return $this->users->createUser([
+        return [
             'company_id' => $companyId,
             'region_id' => null,
             'store_id' => null,
             'name' => $name,
             'phone' => $phone,
-            'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+            'password' => $password,
             'role' => $role,
             'login_scope' => $loginScope,
             'can_view_company_records' => $canViewCompanyRecords ? 1 : 0,
-        ]);
+        ];
     }
 
     /** @param array<string, mixed> $actor @param array<string, mixed> $payload */

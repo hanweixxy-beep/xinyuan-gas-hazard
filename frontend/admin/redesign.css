@@ -261,6 +261,32 @@ tbody tr:hover { background: rgba(234,240,244,.42); }
 .management-main { display: grid; gap: 16px; }
 .management-list { padding: 18px; }
 .management-list .panel-head { margin-bottom: 8px; }
+.user-list-head { flex-wrap: wrap; }
+.user-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.user-list-actions button { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.user-list-actions button.primary { background: var(--blue); color: white; border-color: var(--blue); }
+.user-import-panel.modal-panel { width: min(1120px, calc(100vw - 48px)); border-radius: 8px; }
+.user-import-file { margin-top: 16px; }
+.user-import-file label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 650; }
+.user-import-file label span { margin-left: 10px; font-size: 12px; font-weight: 400; }
+.user-import-file > div { display: flex; align-items: center; gap: 12px; }
+.user-import-file input { flex: 1; min-width: 0; padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.user-import-file button, .user-import-footer button { min-height: 40px; white-space: nowrap; border-radius: 8px; }
+.user-import-error { margin: 12px 0 0; color: var(--red); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.user-import-error:empty { display: none; }
+.user-import-summary { margin: 14px 0; font-size: 14px; }
+.user-import-preview { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.user-import-preview table { min-width: 1000px; table-layout: fixed; background: var(--surface); }
+.user-import-preview th { position: sticky; top: 0; background: var(--surface-soft); z-index: 1; }
+.user-import-preview th, .user-import-preview td { padding: 10px 8px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.user-import-preview th:first-child { width: 50px; }
+.user-import-preview th:last-child { width: 240px; }
+.user-import-result { color: var(--green); }
+.user-import-invalid { background: var(--red-soft); }
+.user-import-invalid .user-import-result { color: var(--red); }
+.user-import-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
+.user-import-footer p { margin: 0; font-size: 12px; }
+.user-import-footer > div { display: flex; gap: 10px; margin-left: auto; }
 .compact-table { max-height: 620px; }
 
 .export-grid, .help-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }

@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Core\HttpException;
 use PDO;
 
 final class UserRepository
@@ -76,7 +77,7 @@ final class UserRepository
     {
         if ($actor['role'] === 'hq_admin') {
             $stmt = $this->pdo->query(
-                "SELECT u.id, u.company_id, c.name AS company_name, u.region_id, r.name AS region_name,
+                "SELECT u.id, u.company_id, c.name AS company_name, c.code AS company_code, u.region_id, r.name AS region_name,
                         u.store_id, s.name AS store_name, u.name, u.phone, u.role, u.login_scope,
                         u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
                  FROM users u
@@ -89,7 +90,7 @@ final class UserRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT u.id, u.company_id, c.name AS company_name, u.region_id, r.name AS region_name,
+            "SELECT u.id, u.company_id, c.name AS company_name, c.code AS company_code, u.region_id, r.name AS region_name,
                     u.store_id, s.name AS store_name, u.name, u.phone, u.role, u.login_scope,
                     u.can_view_company_records, u.status, u.last_login_at, u.created_at, u.updated_at
              FROM users u
@@ -158,6 +159,28 @@ final class UserRepository
             'can_view_company_records' => (int) ($user['can_view_company_records'] ?? 0),
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @param list<array<string, mixed>> $users @return list<int> */
+    public function createUsersAtomically(array $users): array
+    {
+        $ids = [];
+        $rowNumber = 0;
+        $this->pdo->beginTransaction();
+        try {
+            foreach ($users as $user) {
+                $rowNumber = (int) $user['rowNumber'];
+                $ids[] = $this->createUser($user);
+            }
+            $this->pdo->commit();
+            return $ids;
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            if ($exception instanceof \PDOException && ($exception->errorInfo[1] ?? 0) === 1062) {
+                throw new HttpException(409, "第 {$rowNumber} 行手机号已存在，本批次未创建任何账号，请重新校验。");
+            }
+            throw $exception;
+        }
     }
 
     public function updateStatus(int $id, string $status): void

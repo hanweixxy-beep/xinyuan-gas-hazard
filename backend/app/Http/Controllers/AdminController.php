@@ -5,10 +5,11 @@ namespace App\Http\Controllers;
 use App\Core\Request;
 use App\Services\AdminService;
 use App\Services\AuthService;
+use App\Services\UserBatchService;
 
 final class AdminController
 {
-    public function __construct(private AuthService $auth, private AdminService $admin)
+    public function __construct(private AuthService $auth, private AdminService $admin, private UserBatchService $userBatch)
     {
     }
 
@@ -84,6 +85,24 @@ final class AdminController
     {
         $user = $this->auth->requireUser($request->bearerToken());
         return ['users' => $this->admin->users($user)];
+    }
+
+    /** @return array<string, mixed> */
+    public function userImportOptions(Request $request): array
+    {
+        return $this->userBatch->options($this->auth->requireUser($request->bearerToken()));
+    }
+
+    /** @return array<string, mixed> */
+    public function importUsers(Request $request, bool $commit = false): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        if ((int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 524288) {
+            throw new \App\Core\HttpException(413, '导入请求过大，请减少用户数量。');
+        }
+        $rows = $request->json()['rows'] ?? null;
+        if (!is_array($rows)) throw new \App\Core\HttpException(422, '缺少导入用户数据。');
+        return $commit ? $this->userBatch->create($user, $rows) : $this->userBatch->preview($user, $rows);
     }
 
     /** @return array<string, mixed> */

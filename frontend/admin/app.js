@@ -1,3 +1,5 @@
+import { downloadUserTemplate, downloadUsers, readUserFile } from './userWorkbook.js?v=20260915';
+
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_admin_token';
 const state = {
@@ -13,6 +15,7 @@ const state = {
   accessUserId: 0,
   organizationEdit: null,
   organizationSaving: false,
+  userImport: null,
   currentModule: 'home',
   recordPage: 1,
   recordPageSize: 50
@@ -67,6 +70,149 @@ async function runWithButton(button, busyText, task) {
     return await task();
   } finally {
     setButtonBusy(button, false);
+  }
+}
+
+async function exportUsers(button) {
+  const token = state.token;
+  await runWithButton(button, '正在导出...', async () => {
+    const data = await api('/admin/users');
+    if (state.token !== token) return;
+    await downloadUsers(data.users || []);
+    showToast('用户信息已导出，不包含密码。');
+  });
+}
+
+async function downloadUserTemplateFile(button) {
+  const token = state.token;
+  await runWithButton(button, '正在生成...', async () => {
+    const options = await api('/admin/users/import-options');
+    if (state.token !== token) return;
+    await downloadUserTemplate(options);
+  });
+}
+
+function currentUserImport(batch) {
+  return state.userImport === batch && state.token === batch.token;
+}
+
+function updateUserImportControls() {
+  const batch = state.userImport;
+  if (!batch) return;
+  $('#userImportFile').disabled = batch.busy || !batch.options;
+  $('#previewUserImportBtn').disabled = batch.busy || !batch.options || !$('#userImportFile').files.length;
+  $('#previewUserImportBtn').textContent = batch.busy && !batch.committing ? '正在校验...' : '校验文件';
+  $('#commitUserImportBtn').disabled = batch.busy || !batch.preview || batch.preview.errorCount > 0;
+  $('#commitUserImportBtn').textContent = batch.committing ? '正在创建...' : batch.preview?.errorCount === 0 ? `确认创建 ${batch.preview.total} 个账号` : '确认创建';
+  $('#closeUserImportBtn').disabled = batch.committing;
+  $('#cancelUserImportBtn').disabled = batch.committing;
+}
+
+function clearUserImportRows(batch) {
+  batch.rows.forEach((row) => { row.password = ''; });
+  batch.rows = [];
+  batch.preview = null;
+  $('#userImportRows').replaceChildren();
+  $('#userImportPreview').classList.add('hidden');
+}
+
+async function openUserImport() {
+  if (state.userImport) return;
+  const batch = { token: state.token, options: null, rows: [], preview: null, busy: true, committing: false, abort: new AbortController() };
+  state.userImport = batch;
+  $('#userImportFile').value = '';
+  $('#userImportError').textContent = '';
+  $('#userImportSummary').textContent = '正在加载公司和权限...';
+  $('#userImportModal').classList.remove('hidden');
+  $('#userImportModal').setAttribute('aria-hidden', 'false');
+  updateUserImportControls();
+  $('#closeUserImportBtn').focus();
+  try {
+    const options = await api('/admin/users/import-options', { signal: batch.abort.signal });
+    if (!currentUserImport(batch)) return;
+    batch.options = options;
+    $('#userImportSummary').textContent = '尚未校验文件';
+  } catch (error) {
+    if (currentUserImport(batch)) $('#userImportError').textContent = error.message;
+  } finally {
+    if (currentUserImport(batch)) { batch.busy = false; updateUserImportControls(); }
+  }
+}
+
+function closeUserImport(force = false) {
+  const batch = state.userImport;
+  if (batch?.committing && !force) return;
+  if (batch) {
+    batch.abort.abort();
+    clearUserImportRows(batch);
+  }
+  state.userImport = null;
+  $('#userImportFile').value = '';
+  $('#userImportModal').classList.add('hidden');
+  $('#userImportModal').setAttribute('aria-hidden', 'true');
+  if (batch && !force) $('#openUserImportBtn').focus();
+}
+
+async function previewUserImport() {
+  const batch = state.userImport;
+  const file = $('#userImportFile').files[0];
+  if (!batch?.options || batch.busy || !file) return;
+  clearUserImportRows(batch);
+  batch.busy = true;
+  $('#userImportError').textContent = '';
+  $('#userImportSummary').textContent = '正在读取和校验文件...';
+  updateUserImportControls();
+  try {
+    const rows = await readUserFile(file, batch.options, batch.abort.signal);
+    if (!currentUserImport(batch)) return;
+    batch.rows = rows;
+    const preview = await api('/admin/users/import-preview', { method: 'POST', body: JSON.stringify({ rows }), signal: batch.abort.signal });
+    if (!currentUserImport(batch)) return;
+    batch.preview = preview;
+    $('#userImportSummary').textContent = `共 ${preview.total} 人，校验通过 ${preview.validCount} 人，有错误 ${preview.errorCount} 人。`;
+    $('#userImportRows').innerHTML = preview.rows.map((row) => `<tr class="${row.errors.length ? 'user-import-invalid' : ''}">
+      <td>${row.rowNumber}</td><td>${escapeHtml(row.companyName || row.companyCode)}</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.phone)}</td>
+      <td>${escapeHtml(row.role)}</td><td>${escapeHtml(row.loginScope)}</td><td>${escapeHtml(row.canViewCompanyRecords)}</td>
+      <td class="user-import-result">${row.errors.length ? row.errors.map(escapeHtml).join('<br>') : '通过'}</td></tr>`).join('');
+    $('#userImportPreview').classList.remove('hidden');
+    if (preview.errorCount) $('#userImportError').textContent = '请修正表格中的错误行后重新校验，目前未创建任何账号。';
+  } catch (error) {
+    if (currentUserImport(batch)) {
+      clearUserImportRows(batch);
+      $('#userImportError').textContent = error.message;
+      $('#userImportSummary').textContent = '校验未完成，未创建任何账号。';
+    }
+  } finally {
+    if (currentUserImport(batch)) { batch.busy = false; updateUserImportControls(); }
+  }
+}
+
+async function commitUserImport() {
+  const batch = state.userImport;
+  if (!batch?.preview || batch.busy || batch.preview.errorCount) return;
+  batch.busy = true;
+  batch.committing = true;
+  $('#userImportError').textContent = '';
+  updateUserImportControls();
+  try {
+    const result = await api('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows: batch.rows }) });
+    if (!currentUserImport(batch)) return;
+    batch.committing = false;
+    closeUserImport();
+    try {
+      await loadAdminData();
+      showToast(`已创建 ${result.createdCount} 个账号。`);
+    } catch {
+      showToast(`已创建 ${result.createdCount} 个账号，请刷新用户列表。`);
+    }
+  } catch (error) {
+    if (currentUserImport(batch)) {
+      clearUserImportRows(batch);
+      $('#userImportError').textContent = error.message;
+      $('#userImportSummary').textContent = '请重新校验文件。若网络中断，请先刷新用户列表核对创建结果。';
+    }
+  } finally {
+    if (currentUserImport(batch)) { batch.busy = false; batch.committing = false; updateUserImportControls(); }
   }
 }
 
@@ -268,6 +414,7 @@ function logout() {
   closePasswordModal();
   closeAccessModal();
   closeOrganizationModal(true);
+  closeUserImport(true);
 }
 
 function restore() {
@@ -1483,7 +1630,40 @@ $('#organizationEditModal').addEventListener('keydown', (event) => {
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
 });
+$('#exportUsersBtn').addEventListener('click', (event) => exportUsers(event.currentTarget).catch((error) => showToast(error.message)));
+$('#userTemplateBtn').addEventListener('click', (event) => downloadUserTemplateFile(event.currentTarget).catch((error) => showToast(error.message)));
+$('#openUserImportBtn').addEventListener('click', openUserImport);
+$('#closeUserImportBtn').addEventListener('click', () => closeUserImport());
+$('#cancelUserImportBtn').addEventListener('click', () => closeUserImport());
+$('#previewUserImportBtn').addEventListener('click', previewUserImport);
+$('#commitUserImportBtn').addEventListener('click', commitUserImport);
+$('#userImportFile').addEventListener('change', () => {
+  if (!state.userImport) return;
+  clearUserImportRows(state.userImport);
+  $('#userImportError').textContent = '';
+  $('#userImportSummary').textContent = '尚未校验文件';
+  updateUserImportControls();
+});
+$('#userImportModal').addEventListener('click', (event) => {
+  if (event.target.dataset.userImportClose) closeUserImport();
+});
+$('#userImportModal').addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') { event.stopPropagation(); closeUserImport(); }
+  if (event.key === 'Tab') {
+    const controls = [...event.currentTarget.querySelectorAll('button, input')].filter((element) => !element.disabled && element.getClientRects().length);
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+});
+
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.userImport) {
+    event.preventDefault();
+    closeUserImport();
+    return;
+  }
   if (event.key === 'Escape') closePhotoPreview();
   if (event.key === 'Enter' && !$('#loginPanel').classList.contains('hidden') && event.target.matches('#loginPhone, #loginPassword')) {
     login($('#loginBtn')).catch((error) => showToast(error.message));
