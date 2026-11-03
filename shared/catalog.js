@@ -30,7 +30,8 @@ export const gasSourceIssues = [
   '钢瓶无二维码',
   '钢瓶超期或报废',
   '钢瓶充装日期与客户实际使用周期不符',
-  '钢瓶为非鑫远公司气瓶'
+  '钢瓶为非鑫远公司气瓶',
+  '虚假安检'
 ];
 
 export const hazardCategories = [...new Set(hazardItems.map((item) => item.category))];

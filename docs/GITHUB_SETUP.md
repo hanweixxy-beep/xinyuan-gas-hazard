@@ -1,48 +1,15 @@
-# GitHub Private Repository Setup
+# 现有 GitHub 仓库与首次同步
 
-当前本地仓库已经整理完成，并已创建第一次提交和版本标签。
+已存在私有仓库，继续沿用，不需要新建空仓库：
 
-## 推荐仓库名
+~~~text
+https://github.com/hanweixxy-beep/xinyuan-gas-hazard-APP-H5-PHP-MySQL-.git
+~~~
 
-```text
-xinyuan-gas-hazard
-```
+当前准备时 main 为 87af737，工作源码为 Android 2.3.3；累计工作尚需批准后提交、推送。不能只点击推送就上传未提交文件。
 
-仓库必须设为 Private。
+首次同步顺序：仓库外源码与 Git 历史备份 → 审核差异和敏感信息 → 批准具体提交范围 → 形成提交 → 确认后推送现有 origin/main → 比较本机完整提交号与 git ls-remote --heads origin main → Mac 克隆并验收。
 
-## 方式一：使用 GitHub 网页
+推送前如远端已变更，停下来比较两边，不强推。不要把 .env、签名、客户照片、导出表和 APK 放进提交。不对现有代码执行全仓库行尾重整或覆盖复原。
 
-1. 登录 GitHub。
-2. 新建一个 Private 仓库，名称建议 `xinyuan-gas-hazard`。
-3. 不要勾选自动创建 README、`.gitignore` 或 License。
-4. 创建后复制仓库 HTTPS 地址，例如：
-
-```text
-https://github.com/<your-account>/xinyuan-gas-hazard.git
-```
-
-5. 回到 Codex，把这个地址发给我，我会添加 remote 并推送。
-
-## 方式二：安装 GitHub CLI
-
-安装 GitHub CLI 后运行：
-
-```powershell
-gh auth login
-gh repo create xinyuan-gas-hazard --private --source . --remote origin --push
-```
-
-如果仓库已经在网页上创建：
-
-```powershell
-git remote add origin https://github.com/<your-account>/xinyuan-gas-hazard.git
-git push -u origin main
-git push origin v1.4.0-cloud-admin-h5-app-snapshot
-```
-
-## 当前本地状态
-
-- 分支：`main`
-- 首次提交：`Initial xinyuan gas hazard system source`
-- 标签：`v1.4.0-cloud-admin-h5-app-snapshot`
-
+日常操作见 [双机流程](CROSS_DEVICE_WORKFLOW.md)，当前状态见 [PROJECT_STATE.md](PROJECT_STATE.md)。

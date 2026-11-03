@@ -6,6 +6,9 @@ import android.webkit.MimeTypeMap
 import com.xinyuan.gas.data.model.InspectionRecord
 import com.xinyuan.gas.data.model.TerminalHazardCatalog
 import com.xinyuan.gas.data.model.TerminalHazardRecord
+import com.xinyuan.gas.reminder.RectificationReminder
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -129,7 +132,8 @@ class CloudApiException(
 ) : IllegalStateException(message)
 
 class CloudSessionStore(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("cloud_sync", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("cloud_sync", Context.MODE_PRIVATE)
 
     fun load(): CloudSettings = CloudSettings(
         baseUrl = HttpCloudSyncClient.normalizeBaseUrl(
@@ -150,7 +154,7 @@ class CloudSessionStore(context: Context) {
         canViewCompanyRecords = prefs.getBoolean("canViewCompanyRecords", false)
     )
 
-    fun save(session: CloudLoginSession): CloudSettings {
+    fun save(session: CloudLoginSession): CloudSettings = synchronized(RectificationReminder.lock) {
         prefs.edit()
             .putString("baseUrl", session.baseUrl)
             .putString("token", session.token)
@@ -167,16 +171,18 @@ class CloudSessionStore(context: Context) {
             .putString("loginScope", session.loginScope)
             .putBoolean("canViewCompanyRecords", session.canViewCompanyRecords)
             .apply()
-        return load()
+        RectificationReminder.ensureScheduled(appContext, checkNow = true)
+        load()
     }
 
-    fun clear(): CloudSettings {
+    fun clear(): CloudSettings = synchronized(RectificationReminder.lock) {
         val baseUrl = load().baseUrl
         prefs.edit()
             .clear()
             .putString("baseUrl", baseUrl)
             .apply()
-        return load()
+        RectificationReminder.cancel(appContext)
+        load()
     }
 }
 
@@ -276,24 +282,36 @@ class HttpCloudSyncClient(
         CloudOrganizationOptions(regions = regions, stores = stores)
     }
 
-    override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = runCatching {
-        val records = getJson("/records").optJSONArray("records") ?: JSONArray()
-        buildList {
-            for (index in 0 until records.length()) {
-                val item = records.optJSONObject(index) ?: continue
-                add(
-                    CloudRecordSummary(
-                        id = item.optLong("id"),
-                        customerName = item.optString("customer_name"),
-                        customerPhone = item.optString("customer_phone"),
-                        customerAddress = item.optString("customer_address"),
-                        inspectionDate = item.optString("inspection_date"),
-                        checkResult = item.optString("check_result"),
-                        status = item.optString("status"),
-                        inspectorName = item.optString("inspector_name")
+    override suspend fun fetchTerminalRecords(): Result<List<CloudRecordSummary>> = fetchRecordPages("")
+
+    suspend fun fetchPendingReminderRecords(): Result<List<CloudRecordSummary>> = fetchRecordPages("&status=pending")
+
+    private suspend fun fetchRecordPages(filter: String): Result<List<CloudRecordSummary>> = runCatching {
+        val coroutineContext = currentCoroutineContext()
+        RecordPagination.collect(CloudRecordSummary::id) { page ->
+            coroutineContext.ensureActive()
+            val data = getJson("/records?page=$page&pageSize=100$filter")
+            val pagination = data.optJSONObject("pagination")
+                ?: error("云端尚未支持完整分页，请联系管理员")
+            val records = data.getJSONArray("records")
+            val parsed = buildList {
+                for (index in 0 until records.length()) {
+                    val item = records.optJSONObject(index) ?: continue
+                    add(
+                        CloudRecordSummary(
+                            id = item.optLong("id"),
+                            customerName = item.optString("customer_name"),
+                            customerPhone = item.optString("customer_phone"),
+                            customerAddress = item.optString("customer_address"),
+                            inspectionDate = item.optString("inspection_date"),
+                            checkResult = item.optString("check_result"),
+                            status = item.optString("status"),
+                            inspectorName = item.optString("inspector_name")
+                        )
                     )
-                )
+                }
             }
+            RecordPage(pagination.getInt("page"), pagination.getInt("pageCount"), pagination.getInt("total"), parsed)
         }
     }
 
@@ -432,9 +450,9 @@ class HttpCloudSyncClient(
     private fun buildTerminalPayload(record: TerminalHazardRecord, photos: RemoteTerminalPhotos): JSONObject =
         JSONObject().apply {
             put("clientUuid", record.uuid)
-            put("customerName", requiredText(record.customerName))
-            put("customerPhone", requiredText(record.customerPhone))
-            put("customerType", requiredText(record.customerType))
+            put("customerName", record.customerName.trim())
+            put("customerPhone", record.customerPhone.trim())
+            put("customerType", record.customerType.trim())
             put("customerAddress", requiredText(record.customerAddress))
             put("inspectorName", requiredText(record.inspectorName))
             put("regionId", record.regionId.takeIf { it > 0L } ?: JSONObject.NULL)

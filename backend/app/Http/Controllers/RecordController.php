@@ -16,7 +16,7 @@ final class RecordController
     public function index(Request $request): array
     {
         $user = $this->auth->requireUser($request->bearerToken());
-        return ['records' => $this->records->list($user, [
+        $filters = [
             'status' => (string) $request->input('status', ''),
             'dateFrom' => (string) $request->input('dateFrom', ''),
             'dateTo' => (string) $request->input('dateTo', ''),
@@ -28,10 +28,22 @@ final class RecordController
             'deliveryPerson' => (string) $request->input('deliveryPerson', ''),
             'customerType' => (string) $request->input('customerType', ''),
             'checkResult' => (string) $request->input('checkResult', ''),
+            'hazardCode' => (string) $request->input('hazardCode', ''),
+            'hazardCodes' => $request->input('hazardCodes', []),
+            'gasSourceIssues' => $request->input('gasSourceIssues', []),
             'customerName' => (string) $request->input('customerName', ''),
             'customerPhone' => (string) $request->input('customerPhone', ''),
             'customerAddress' => (string) $request->input('customerAddress', ''),
-        ])];
+        ];
+        if ($request->input('page', null) !== null) {
+            $page = filter_var($request->input('page'), FILTER_VALIDATE_INT);
+            $pageSize = filter_var($request->input('pageSize', 50), FILTER_VALIDATE_INT);
+            if ($page === false || $page < 1 || $pageSize === false || $pageSize < 1 || $pageSize > 100) {
+                throw new \App\Core\HttpException(422, '分页参数无效，每页须为 1 至 100 条。');
+            }
+            return $this->records->page($user, $filters, $page, $pageSize);
+        }
+        return ['records' => $this->records->list($user, $filters)];
     }
 
     /** @return array<string, mixed> */

@@ -1,8 +1,15 @@
 package com.xinyuan.gas.ui.cloud
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.xinyuan.gas.reminder.RectificationReminder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -35,12 +42,14 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -60,6 +69,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,10 +87,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -125,6 +137,7 @@ import com.xinyuan.gas.ui.theme.OrangeAccent
 import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -138,9 +151,10 @@ private enum class CloudTab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun CloudAppRoot(viewModel: InspectionViewModel) {
+fun CloudAppRoot(viewModel: InspectionViewModel, openPendingRequest: Int = 0) {
     val context = LocalContext.current
     val settings by viewModel.cloudSettings.collectAsState()
+    ReminderPermission(settings.isLoggedIn)
     val legacyCount by viewModel.terminalTotalCount.collectAsState(initial = 0)
     val legacyUnsynced by viewModel.terminalUnsyncedCount.collectAsState(initial = 0)
     val migrationRunning by viewModel.legacyMigrationRunning.collectAsState()
@@ -181,11 +195,28 @@ fun CloudAppRoot(viewModel: InspectionViewModel) {
             settings = settings,
             legacyCount = legacyCount,
             legacyUnsynced = legacyUnsynced,
+            openPendingRequest = openPendingRequest,
             onShowMigration = {
                 migrationAcknowledged = false
                 migrationPrefs.edit().putBoolean("acknowledged", false).apply()
             }
         )
+    }
+}
+
+@Composable
+private fun ReminderPermission(isLoggedIn: Boolean) {
+    val context = LocalContext.current
+    val permissionPrefs = remember { context.getSharedPreferences("reminder_permission", Context.MODE_PRIVATE) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) RectificationReminder.checkAfterPermissionGranted(context)
+    }
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn && Build.VERSION.SDK_INT >= 33 &&
+            !RectificationReminder.notificationsEnabled(context) && !permissionPrefs.getBoolean("asked", false)) {
+            permissionPrefs.edit().putBoolean("asked", true).apply()
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 }
 
@@ -470,12 +501,23 @@ private fun CloudShell(
     settings: CloudSettings,
     legacyCount: Int,
     legacyUnsynced: Int,
+    openPendingRequest: Int,
     onShowMigration: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(CloudTab.HOME) }
     var recordsInitialStatus by rememberSaveable { mutableStateOf("") }
     var formSessionKey by rememberSaveable { mutableStateOf(0) }
     var recordOverlayActive by rememberSaveable { mutableStateOf(false) }
+    var handledPendingRequest by rememberSaveable { mutableStateOf(0) }
+    LaunchedEffect(openPendingRequest) {
+        if (openPendingRequest > handledPendingRequest) {
+            handledPendingRequest = openPendingRequest
+            recordsInitialStatus = "pending"
+            recordOverlayActive = false
+            selectedTab = CloudTab.RECORDS
+            viewModel.refreshCloudRecords()
+        }
+    }
     val keyboardVisible = WindowInsets.isImeVisible
     BackHandler(enabled = selectedTab != CloudTab.HOME && !recordOverlayActive) {
         if (selectedTab == CloudTab.REGISTER) {
@@ -535,11 +577,13 @@ private fun CloudShell(
                         selectedTab = CloudTab.RECORDS
                     }
                 )
-                CloudTab.RECORDS -> CloudRecordsScreen(
-                    viewModel = viewModel,
-                    initialStatus = recordsInitialStatus,
-                    onOverlayVisibilityChanged = { recordOverlayActive = it }
-                )
+                CloudTab.RECORDS -> key(openPendingRequest) {
+                    CloudRecordsScreen(
+                        viewModel = viewModel,
+                        initialStatus = recordsInitialStatus,
+                        onOverlayVisibilityChanged = { recordOverlayActive = it }
+                    )
+                }
                 CloudTab.PROFILE -> CloudProfileScreen(
                     viewModel = viewModel,
                     settings = settings,
@@ -800,12 +844,22 @@ private fun CloudRecordsScreen(
     val records by viewModel.cloudRecords.collectAsState()
     val loading by viewModel.cloudRecordsLoading.collectAsState()
     val rectificationSubmitting by viewModel.cloudRectificationInProgress.collectAsState()
+    val recordsListState = rememberLazyListState()
+    val recordsScope = rememberCoroutineScope()
+    val showBackToTop by remember {
+        derivedStateOf { recordsListState.firstVisibleItemIndex > 0 || recordsListState.firstVisibleItemScrollOffset > 0 }
+    }
     var keyword by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf(initialStatus) }
     var detailRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
     var rectificationDetail by remember { mutableStateOf<CloudRecordDetail?>(null) }
     val detail by viewModel.cloudRecordDetail.collectAsState()
     val detailLoading by viewModel.cloudRecordDetailLoading.collectAsState()
+    val scopeDescription = when (settings.role) {
+        "hq_admin" -> "显示当前账号可查看的全部公司记录"
+        "company_admin" -> "显示当前账号可查看的本公司记录"
+        else -> if (settings.canViewCompanyRecords) "显示当前账号可查看的本公司记录" else "仅显示我录入的数据"
+    }
     val filtered = records.filter { record ->
         val matchesKeyword = keyword.isBlank() ||
             record.customerName.contains(keyword, true) ||
@@ -821,6 +875,7 @@ private fun CloudRecordsScreen(
 
     LaunchedEffect(Unit) { viewModel.refreshCloudRecords() }
     LaunchedEffect(initialStatus) { status = initialStatus }
+    LaunchedEffect(keyword, status) { recordsListState.scrollToItem(0) }
     LaunchedEffect(Unit) {
         viewModel.cloudRectificationResult.collectLatest { result ->
             result.fold(
@@ -841,15 +896,17 @@ private fun CloudRecordsScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
+        state = recordsListState,
         modifier = Modifier
             .fillMaxSize()
             .background(GrayBackground),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(18.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Text("仅显示我录入的数据", color = BrandGreenStrong, style = MaterialTheme.typography.labelMedium)
+            Text(scopeDescription, color = BrandGreenStrong, style = MaterialTheme.typography.labelMedium)
             Text(
                 "我的记录",
                 color = InkPrimary,
@@ -915,6 +972,20 @@ private fun CloudRecordsScreen(
                 )
             }
         }
+    }
+
+    AnimatedVisibility(
+        visible = showBackToTop && detailRecordId == null && rectificationDetail == null,
+        modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)
+    ) {
+        ExtendedFloatingActionButton(
+            onClick = { recordsScope.launch { recordsListState.animateScrollToItem(0) } },
+            icon = { Icon(Icons.Default.VerticalAlignTop, contentDescription = null) },
+            text = { Text("回到顶部") },
+            containerColor = BrandGreen,
+            contentColor = Color.White
+        )
+    }
     }
 
     AnimatedVisibility(
@@ -1395,6 +1466,7 @@ private fun CloudProfileScreen(
     legacyUnsynced: Int,
     onShowMigration: () -> Unit
 ) {
+    val context = LocalContext.current
     var showPasswordDialog by rememberSaveable { mutableStateOf(false) }
     val changingPassword by viewModel.cloudPasswordChangeInProgress.collectAsState()
     val connection by viewModel.cloudConnectionState.collectAsState()
@@ -1482,6 +1554,17 @@ private fun CloudProfileScreen(
                         onClick = onShowMigration
                     )
                 }
+                HorizontalDivider(color = GraySeparator)
+                ProfileAction(Icons.Default.Warning, "整改提醒", "每3天 · 通知设置", onClick = {
+                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                })
+                Text(
+                    "未整改记录自检查日期满3天后提醒，之后每隔3天重复，整改完成后停止。请开启应用通知；断网或手机省电限制可能延后提醒。",
+                    color = InkSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
                 HorizontalDivider(color = GraySeparator)
                 ProfileAction(Icons.Default.Shield, "关于应用", "云端版 v${BuildConfig.VERSION_NAME}")
             }

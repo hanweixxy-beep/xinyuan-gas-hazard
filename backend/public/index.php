@@ -10,6 +10,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\ExportController;
+use App\Http\Controllers\ExportJobController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\RecordController;
@@ -20,6 +21,7 @@ use App\Repositories\UserRepository;
 use App\Services\AuthService;
 use App\Services\AdminService;
 use App\Services\ExportService;
+use App\Services\ExportJobService;
 use App\Services\FileStorageService;
 use App\Services\RecordService;
 use App\Services\TencentMapService;
@@ -51,6 +53,9 @@ $recordController = new RecordController($authService, $recordService);
 $fileController = new FileController($authService, $fileStorage);
 $locationController = new LocationController($authService, $tencentMapService);
 $exportController = new ExportController($authService, $recordService, $exportService);
+$exportJobController = new ExportJobController($authService, new ExportJobService(
+    $pdo, $recordRepository, (string) $config->get('export_root'), (string) $config->get('upload_root'), baseUrl: (string) $config->get('base_url')
+));
 
 $router = new Router();
 
@@ -78,6 +83,11 @@ $router->add('POST', '/api/admin/users/{id}/reset-password', fn (Request $reques
 $router->add('GET', '/api/catalog', fn () => $catalogController->index());
 $router->add('GET', '/api/export/columns', fn () => $exportController->columns());
 $router->add('GET', '/api/export/xlsx', fn (Request $request) => $exportController->xlsx($request));
+$router->add('GET', '/api/export/jobs', fn (Request $request) => $exportJobController->index($request));
+$router->add('POST', '/api/export/jobs', fn (Request $request) => $exportJobController->create($request));
+$router->add('POST', '/api/export/jobs/{id}/cancel', fn (Request $request, array $params) => $exportJobController->cancel($request, $params));
+$router->add('POST', '/api/export/jobs/{id}/files/{part}/ticket', fn (Request $request, array $params) => $exportJobController->ticket($request, $params));
+$router->add('GET', '/api/export/jobs/{id}/files/{part}', fn (Request $request, array $params) => $exportJobController->download($request, $params));
 $router->add('GET', '/api/records', fn (Request $request) => $recordController->index($request));
 $router->add('GET', '/api/organization-options', fn (Request $request) => $recordController->organizationOptions($request));
 $router->add('POST', '/api/records', fn (Request $request) => $recordController->store($request));

@@ -9,6 +9,8 @@ use ZipArchive;
 
 final class ExportService
 {
+    private array $hyperlinks = [];
+
     /** @var array<string, array{issue:string, photo:string}> */
     private const CATEGORY_COLUMNS = [
         '可燃气体报警器' => ['issue' => 'alarmIssue', 'photo' => 'alarmPhoto'],
@@ -36,7 +38,12 @@ final class ExportService
         'png' => 'image/png',
     ];
 
-    public function __construct(private string $uploadRoot = '')
+    public function __construct(
+        private string $uploadRoot = '',
+        private ?ExportImageService $imageCopies = null,
+        private string $tempRoot = '',
+        private string $linkBaseUrl = ''
+    )
     {
     }
 
@@ -54,27 +61,39 @@ final class ExportService
     }
 
     /** @param list<array<string, mixed>> $records */
-    public function recordsWorkbookFile(array $records): string
+    public function recordsWorkbookFile(array $records, int $sequenceOffset = 0): string
     {
         $columns = ExportColumns::all();
         $sheetRows = [
             array_map(static fn (array $column): string => $column['label'], $columns),
         ];
         $images = [];
+        $this->hyperlinks = [];
 
         foreach ($records as $index => $record) {
-            foreach ($this->recordRows($record, $index + 1) as $row) {
+            foreach ($this->recordRows($record, $sequenceOffset + $index + 1) as $row) {
                 $excelRow = count($sheetRows) + 1;
                 $sheetRow = [];
                 foreach ($columns as $columnIndex => $column) {
                     $key = $column['key'];
                     $value = (string) ($row[$key] ?? '');
+                    if ($this->linkBaseUrl !== '' && in_array($key, self::PHOTO_KEYS, true)) {
+                        if ($value !== '') {
+                            $url = $this->photoLink($value);
+                            $value = $url ?: '照片路径无效，请在系统中核对';
+                            if ($url !== '') $this->hyperlinks[$this->columnName($columnIndex + 1) . $excelRow] = $url;
+                        }
+                        $sheetRow[] = $value;
+                        continue;
+                    }
                     $image = in_array($key, self::PHOTO_KEYS, true) ? $this->imageFromPath($value) : null;
                     if ($image !== null) {
                         $image['row'] = $excelRow;
                         $image['column'] = $columnIndex + 1;
                         $images[] = $image;
                         $value = '';
+                    } elseif ($value !== '' && $this->imageCopies !== null && in_array($key, self::PHOTO_KEYS, true)) {
+                        $value = '照片缺失或无法处理，请在系统中核对原图';
                     }
                     $sheetRow[] = $value;
                 }
@@ -238,8 +257,20 @@ final class ExportService
     }
 
     /** @return array{path:string, extension:string, contentType:string}|null */
+    private function photoLink(string $path): string
+    {
+        if (!str_starts_with($path, '/uploads/') || preg_match('/[\\\\\x00-\x20?#]/', $path)) return '';
+        $segments = explode('/', substr($path, 1));
+        foreach ($segments as $segment) {
+            if ($segment === '' || in_array(rawurldecode($segment), ['.', '..'], true)
+                || str_contains(rawurldecode($segment), '/') || str_contains(rawurldecode($segment), "\\")) return '';
+        }
+        return rtrim($this->linkBaseUrl, '/') . '/' . implode('/', array_map('rawurlencode', array_map('rawurldecode', $segments)));
+    }
+
     private function imageFromPath(string $filePath): ?array
     {
+        if ($this->imageCopies !== null) return $this->imageCopies->prepare($filePath);
         if ($filePath === '' || $this->uploadRoot === '') {
             return null;
         }
@@ -296,7 +327,7 @@ final class ExportService
             throw new RuntimeException('服务器缺少 php-zip 扩展，无法生成 xlsx 文件。');
         }
 
-        $tempFile = tempnam(sys_get_temp_dir(), 'xinyuan-export-');
+        $tempFile = tempnam($this->tempRoot ?: sys_get_temp_dir(), 'xinyuan-export-');
         if ($tempFile === false) {
             throw new RuntimeException('无法创建导出临时文件。');
         }
@@ -315,15 +346,31 @@ final class ExportService
         $zip->addFromString('xl/_rels/workbook.xml.rels', $this->workbookRelsXml());
         $zip->addFromString('xl/styles.xml', $this->stylesXml());
         $zip->addFromString('xl/worksheets/sheet1.xml', $this->worksheetXml($rows, $images));
+        if ($this->hyperlinks !== []) {
+            $rels = '';
+            foreach (array_values($this->hyperlinks) as $index => $url) {
+                $rels .= '<Relationship Id="rIdLink' . ($index + 1) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="' . $this->xml($url) . '" TargetMode="External"/>';
+            }
+            $zip->addFromString('xl/worksheets/_rels/sheet1.xml.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' . $rels . '</Relationships>');
+        }
         if ($images !== []) {
             $zip->addFromString('xl/worksheets/_rels/sheet1.xml.rels', $this->sheetRelsXml());
             $zip->addFromString('xl/drawings/drawing1.xml', $this->drawingXml($images));
             $zip->addFromString('xl/drawings/_rels/drawing1.xml.rels', $this->drawingRelsXml($images));
             foreach ($images as $index => $image) {
-                $zip->addFile($image['path'], 'xl/media/' . $this->imagePartName($image, $index + 1));
+                $partName = 'xl/media/' . $this->imagePartName($image, $index + 1);
+                if (!$zip->addFile($image['path'], $partName)) {
+                    $zip->close();
+                    @unlink($tempFile);
+                    throw new RuntimeException('无法写入导出照片。');
+                }
+                $zip->setCompressionName($partName, ZipArchive::CM_STORE);
             }
         }
-        $zip->close();
+        if (!$zip->close()) {
+            @unlink($tempFile);
+            throw new RuntimeException('导出文件生成失败，可能磁盘空间不足。');
+        }
 
         return $tempFile;
     }
@@ -359,8 +406,19 @@ final class ExportService
             . '<cols><col min="1" max="1" width="8" customWidth="1"/><col min="2" max="' . count(ExportColumns::all()) . '" width="22" customWidth="1"/></cols>'
             . '<sheetData>' . $rowXml . '</sheetData>'
             . '<autoFilter ref="A1:' . $lastColumn . $lastRow . '"/>'
+            . $this->hyperlinksXml()
             . ($images === [] ? '' : '<drawing r:id="rId1"/>')
             . '</worksheet>';
+    }
+
+    private function hyperlinksXml(): string
+    {
+        if (!$this->hyperlinks) return '';
+        $xml = '<hyperlinks>';
+        foreach (array_keys($this->hyperlinks) as $index => $reference) {
+            $xml .= '<hyperlink ref="' . $reference . '" r:id="rIdLink' . ($index + 1) . '"/>';
+        }
+        return $xml . '</hyperlinks>';
     }
 
     private function cell(string $reference, string $value, bool $header = false): string

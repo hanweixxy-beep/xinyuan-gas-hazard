@@ -123,6 +123,7 @@ fun TerminalHazardFormScreen(
     val cloudSubmitInProgress by viewModel.cloudSubmitInProgress.collectAsState()
     var draftUuid by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var draftCreated by rememberSaveable { mutableStateOf(false) }
+    var showSubmitConfirmation by remember { mutableStateOf(false) }
 
     var customerName by remember { mutableStateOf("") }
     var storefrontPhoto by remember { mutableStateOf("") }
@@ -169,19 +170,21 @@ fun TerminalHazardFormScreen(
     var remark by remember { mutableStateOf("") }
     var previewPhoto by remember { mutableStateOf<String?>(null) }
     val effectiveInspectorName = cloudSettings.userName.ifBlank { inspectorName }
-    val storefrontMissingFields = listOfNotNull(
+    val submissionMissingFields = listOfNotNull(
         "用户名".takeIf { customerName.isBlank() },
         "电话".takeIf { customerPhone.isBlank() },
         "用户类型".takeIf { customerType.isBlank() },
         "检查人".takeIf { effectiveInspectorName.isBlank() },
         "配送员".takeIf { deliveryPerson.isBlank() }
     )
+    val storefrontMissingFields = listOfNotNull("配送员".takeIf { deliveryPerson.isBlank() })
     val storefrontWatermarkReady = storefrontMissingFields.isEmpty()
     val organizationSummary = buildString {
         append(inspectionRegionName.ifBlank { "请选择检查片区和门店" })
         if (inspectionStoreName.isNotBlank()) append(" · $inspectionStoreName")
     }
     LaunchedEffect(cloudSettings.userId) {
+        showSubmitConfirmation = false
         viewModel.refreshOrganizationOptions()
     }
 
@@ -295,7 +298,8 @@ fun TerminalHazardFormScreen(
                             customerName,
                             customerPhone,
                             locationSnapshot.watermarkText,
-                            deliveryPerson
+                            deliveryPerson,
+                            customerType
                         )
                         if (storefrontPhoto.isNotEmpty()) PhotoUtil.deletePhoto(context, storefrontPhoto)
                         storefrontPhoto = uri.toString()
@@ -306,19 +310,19 @@ fun TerminalHazardFormScreen(
             } else if (target == "cylinder_qr") {
                 PhotoUtil.addWatermark(
                     context, uri, customerAddress, effectiveInspectorName, customerName, customerPhone,
-                    sharedLocationWatermark(), deliveryPerson
+                    sharedLocationWatermark(), deliveryPerson, customerType
                 )
                 cylinderQrPhotos = cylinderQrPhotos + uri.toString()
             } else if (target == "cylinder") {
                 PhotoUtil.addWatermark(
                     context, uri, customerAddress, effectiveInspectorName, customerName, customerPhone,
-                    sharedLocationWatermark(), deliveryPerson
+                    sharedLocationWatermark(), deliveryPerson, customerType
                 )
                 cylinderPhotos = cylinderPhotos + uri.toString()
             } else if (target.isNotEmpty()) {
                 PhotoUtil.addWatermark(
                     context, uri, customerAddress, effectiveInspectorName, customerName, customerPhone,
-                    sharedLocationWatermark(), deliveryPerson
+                    sharedLocationWatermark(), deliveryPerson, customerType
                 )
                 hazardPhotos = hazardPhotos + (target to (hazardPhotos[target].orEmpty() + uri.toString()))
             }
@@ -349,7 +353,7 @@ fun TerminalHazardFormScreen(
         if (!storefrontWatermarkReady) {
             Toast.makeText(
                 context,
-                "请先填写${storefrontMissingFields.joinToString("、")}后再拍照生成完整水印",
+                "请先填写配送员后再拍照",
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -413,8 +417,10 @@ fun TerminalHazardFormScreen(
 
     fun validateAndSave(
         resultToSave: String = checkResult,
-        rectificationDateToSave: Long = rectificationDate
+        rectificationDateToSave: Long = rectificationDate,
+        confirmed: Boolean = false
     ) {
+        if (cloudSubmitInProgress) return
         if (!organizationOptionsLoaded) {
             Toast.makeText(context, "正在获取检查片区和门店，请稍后再提交", Toast.LENGTH_SHORT).show()
             viewModel.refreshOrganizationOptions()
@@ -430,8 +436,8 @@ fun TerminalHazardFormScreen(
             showOrganizationPicker = true
             return
         }
-        if (!storefrontWatermarkReady) {
-            Toast.makeText(context, "请先填写${storefrontMissingFields.joinToString("、")}", Toast.LENGTH_SHORT).show()
+        if (submissionMissingFields.isNotEmpty()) {
+            Toast.makeText(context, "请先填写${submissionMissingFields.joinToString("、")}", Toast.LENGTH_SHORT).show()
             return
         }
         if (storefrontPhoto.isBlank()) {
@@ -443,8 +449,8 @@ fun TerminalHazardFormScreen(
             return
         }
         if (resultToSave == TerminalHazardCatalog.RESULT_NOT_CLEARED) {
-            if (selectedHazards.isEmpty()) {
-                Toast.makeText(context, "请选择未清零隐患项目", Toast.LENGTH_SHORT).show()
+            if (selectedHazards.isEmpty() && gasSourceIssues.isEmpty()) {
+                Toast.makeText(context, "请选择未清零隐患项目或气源排查异常", Toast.LENGTH_SHORT).show()
                 return
             }
             val missingPhoto = selectedHazards.any { hazardPhotos[it].orEmpty().isEmpty() }
@@ -452,6 +458,10 @@ fun TerminalHazardFormScreen(
                 Toast.makeText(context, "每个未清零隐患项目都需要拍照", Toast.LENGTH_SHORT).show()
                 return
             }
+        }
+        if (gasSourceIssues.isNotEmpty() && cylinderQrPhotos.isEmpty() && cylinderPhotos.isEmpty()) {
+            Toast.makeText(context, "气源排查异常时，请拍摄钢瓶二维码或钢瓶照片", Toast.LENGTH_SHORT).show()
+            return
         }
         if (
             editRecordId > 0L &&
@@ -462,6 +472,10 @@ fun TerminalHazardFormScreen(
             return
         }
 
+        if (!confirmed) {
+            showSubmitConfirmation = true
+            return
+        }
         prefs.edit().putString("last_inspector", effectiveInspectorName).apply()
         viewModel.saveTerminalRecord(currentRecord(resultToSave, rectificationDateToSave))
     }
@@ -512,6 +526,28 @@ fun TerminalHazardFormScreen(
                 }
             )
         }
+    }
+
+    if (showSubmitConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showSubmitConfirmation = false },
+            title = { Text("确认提交检查记录？") },
+            text = {
+                Text("用户：$customerName\n检查结果：$checkResult\n\n请核对用户信息、检查结果及照片，确认后提交本次检查记录。")
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !cloudSubmitInProgress,
+                    onClick = {
+                        showSubmitConfirmation = false
+                        validateAndSave(confirmed = true)
+                    }
+                ) { Text("确认提交") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSubmitConfirmation = false }) { Text("返回检查") }
+            }
+        )
     }
 
     Scaffold(
@@ -604,7 +640,7 @@ fun TerminalHazardFormScreen(
                         IOSGroupCard(title = "现场信息") {
                             LocationCard(customerAddress, isResolvingLocation, locationAccuracyMeters)
                             Text(
-                                text = "先填写上方必填信息，再拍门头照片。照片会写入日期时间、用户电话、检查人和用户地址水印。",
+                                text = "填写配送员即可拍照。已填写的用户信息显示在水印中，未填写的内容不显示；提交前须补齐全部必填信息。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = GraySecondaryText,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
@@ -1181,7 +1217,7 @@ private fun FormActionBar(
                     )
                     Text("  正在提交", style = MaterialTheme.typography.labelLarge)
                 } else {
-                    Text("提交记录", style = MaterialTheme.typography.labelLarge)
+                    Text("提交检查记录", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

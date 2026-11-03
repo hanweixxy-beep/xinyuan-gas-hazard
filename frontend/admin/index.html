@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f1e9">
   <title>鑫远燃气隐患排查后台</title>
   <link rel="stylesheet" href="./styles.css?v=20260903-admin-org-filter-1">
-  <link rel="stylesheet" href="./redesign.css?v=20260915-user-batch">
+  <link rel="stylesheet" href="./redesign.css?v=20261020-field-update">
 </head>
 <body>
   <main class="layout">
@@ -123,7 +123,7 @@
           <section id="recordsPanel" class="module-panel hidden">
             <div class="page-heading">
               <div><p class="eyebrow">记录中心</p><h2>检查记录</h2><span>筛选、查看详情并跟踪整改闭环。</span></div>
-              <button id="exportBtn" class="primary desktop-primary" type="button">导出 Excel</button>
+              <div class="header-actions"><button id="exportBtn" class="primary desktop-primary" type="button">导出表格（带照片）</button><button id="exportLinksBtn" type="button">导出表格（照片链接）</button></div>
             </div>
             <section class="summary compact-summary">
               <div><span>筛选结果</span><strong id="recordsTotalCount">0</strong></div>
@@ -138,6 +138,8 @@
                 <label id="filterStoreField" class="hidden">门店<select id="filterStoreSelect" name="storeId"><option value="">全部门店</option></select></label>
                 <label>状态<select name="status"><option value="">全部</option><option value="pending">待整改</option><option value="done">已完成</option><option value="rectified">已整改</option></select></label>
                 <label>检查结果<select name="checkResult"><option value="">全部结果</option><option value="隐患已清零">隐患已清零</option><option value="隐患未清零">隐患未清零</option><option value="隐患已整改">隐患已整改</option></select></label>
+                <details id="filterHazardGroup" class="multi-filter wide-field"><summary>隐患项目 <span id="filterHazardCount">全部（可多选）</span></summary><div id="filterHazardOptions" class="multi-filter-options"></div></details>
+                <details id="filterGasGroup" class="multi-filter wide-field"><summary>气源排查 <span id="filterGasCount">全部（可多选）</span></summary><div id="filterGasOptions" class="multi-filter-options"></div></details>
                 <label>用户类型<select name="customerType"><option value="">全部类型</option><option value="居民用户">居民用户</option><option value="商业用户">商业用户</option><option value="餐饮用户">餐饮用户</option><option value="工业用户">工业用户</option><option value="流动摊贩">流动摊贩</option></select></label>
                 <label>检查人<input name="inspectorName" placeholder="检查人姓名"></label>
                 <label>配送员<input name="deliveryPerson" placeholder="配送员姓名"></label>
@@ -145,10 +147,11 @@
                 <label>结束日期<input name="dateTo" type="date"></label>
                 <button class="primary" type="submit">查询</button>
                 <button id="resetFiltersBtn" type="button">重置</button>
+                <p class="multi-filter-help">隐患项目、气源排查均可多选：同组匹配任一项，两组及其他筛选条件同时生效。</p>
               </form>
               <div class="table-wrap">
                 <table class="records-table">
-                  <thead><tr><th>日期</th><th>公司</th><th>片区/门店</th><th>用户</th><th>电话</th><th>地址</th><th>结果</th><th>检查人</th><th>操作</th></tr></thead>
+                  <thead><tr><th>日期</th><th>公司</th><th>片区/门店</th><th>用户</th><th>电话</th><th>地址</th><th>结果</th><th>配送员</th><th>检查人</th><th>操作</th></tr></thead>
                   <tbody id="recordRows"></tbody>
                 </table>
               </div>
@@ -228,14 +231,19 @@
           <section id="exportPanel" class="module-panel hidden">
             <div class="page-heading">
               <div><p class="eyebrow">数据交付</p><h2>数据导出</h2><span>导出继承检查记录中的当前筛选条件。</span></div>
-              <button id="exportPanelBtn" class="primary desktop-primary" type="button">导出完整 Excel</button>
+              <div class="header-actions"><button id="exportPanelBtn" class="primary desktop-primary" type="button">新建带图导出</button><button id="exportLinksPanelBtn" type="button">新建照片链接导出</button></div>
             </div>
             <section class="export-grid">
               <div class="panel export-card"><span>01</span><strong>完整检查数据</strong><p>固定字段、地址、隐患项目与整改信息。</p></div>
-              <div class="panel export-card"><span>02</span><strong>照片嵌入表格</strong><p>门头、隐患、钢瓶和整改照片随记录导出。</p></div>
+              <div class="panel export-card"><span>02</span><strong>压缩照片，保留原图</strong><p>带图版嵌入压缩副本；链接版保留可点击的原图链接，速度更快、文件更小。系统原图不变。</p></div>
               <div class="panel export-card"><span>03</span><strong>按权限隔离</strong><p>总部、公司和检查员只导出授权范围内的数据。</p></div>
             </section>
-            <section class="panel export-note"><h3>导出说明</h3><p>数据较多时服务器需要一定处理时间。请保持页面打开，等待浏览器开始下载。</p></section>
+            <section class="panel export-note"><h3>后台生成，可离开页面</h3><p>按提交时筛选范围生成全部记录，不受原 5,000 条上限影响。照片链接版通常生成一个完整表格；带图版及数据量特别大时自动分包，完成后请下载全部文件。文件保留 7 天，过期可重新导出。</p><p>生成时读取记录最新内容；如账号权限改变或记录删除，任务会提示失败，避免遗漏。带图版可离线查看；照片链接版需联网打开照片，原图删除后链接将无法访问。</p></section>
+            <section class="panel export-tasks">
+              <div class="export-job-heading"><h3>我的导出任务</h3><button id="refreshExportsBtn" type="button">刷新进度</button></div>
+              <p id="exportJobsError" class="export-warning" role="status"></p>
+              <div id="exportJobsList" aria-live="polite"></div>
+            </section>
           </section>
 
           <section id="helpPanel" class="module-panel hidden">
@@ -331,6 +339,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260915-user-batch"></script>
+  <script type="module" src="./app.js?v=20261026-single-link"></script>
 </body>
 </html>

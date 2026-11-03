@@ -1,4 +1,6 @@
 import { downloadUserTemplate, downloadUsers, readUserFile } from './userWorkbook.js?v=20260915';
+import { hazardItems, gasSourceIssues } from '../../shared/catalog.js?v=20261020-field-update';
+import { configureExportJobs, createExportJob, refreshExportJobs, setExportVisible } from './exportJobs.js?v=20261026-single-link';
 
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_admin_token';
@@ -6,6 +8,9 @@ const state = {
   token: localStorage.getItem(tokenKey) || '',
   user: null,
   records: [],
+  recordTotal: 0,
+  recordRequest: 0,
+  appliedFilters: null,
   currentRecord: null,
   companies: [],
   regions: [],
@@ -223,6 +228,10 @@ function today() {
 function buildQuery(params) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => query.append(`${key}[]`, item));
+      return;
+    }
     if (String(value || '').trim() !== '') query.set(key, String(value).trim());
   });
   const text = query.toString();
@@ -395,6 +404,7 @@ async function login(button = null) {
 }
 
 function logout() {
+  setExportVisible(false);
   state.token = '';
   state.user = null;
   state.records = [];
@@ -484,6 +494,7 @@ function showModule(moduleName = 'home') {
   }
 
   state.currentModule = nextModule;
+  setExportVisible(nextModule === 'export');
   document.querySelectorAll('.module-panel').forEach((panel) => {
     panel.classList.toggle('hidden', panel.id !== moduleId(nextModule));
   });
@@ -503,6 +514,10 @@ function showModule(moduleName = 'home') {
 
 async function openModule(moduleName) {
   showModule(moduleName);
+  if (state.currentModule === 'export') {
+    await refreshExportJobs();
+    return;
+  }
   if (state.currentModule === 'admin') {
     await loadAdminData();
     return;
@@ -513,6 +528,10 @@ async function openModule(moduleName) {
 }
 
 async function refreshCurrentModule(button = null) {
+  if (state.currentModule === 'export') {
+    await refreshExportJobs();
+    return;
+  }
   if (state.currentModule === 'admin') {
     await loadAdminData(button);
     showToast('账号列表已刷新');
@@ -540,10 +559,8 @@ function updateDashboardGreeting(now = new Date()) {
   setText('#dashboardUpdatedAt', `截至 ${dateTime} 的数据概况`);
 }
 
-function updateRecordCounters(records) {
-  const total = records.length;
-  const pending = records.filter((item) => item.status === 'pending').length;
-  const done = records.filter((item) => item.status !== 'pending').length;
+function updateRecordCounters(summary) {
+  const { total, pending, done } = summary;
   const rate = total > 0 ? Math.round((done / total) * 100) : 0;
 
   setText('#totalCount', total);
@@ -559,20 +576,15 @@ function updateRecordCounters(records) {
   updateDashboardGreeting();
 }
 
-function renderDashboard(records = []) {
-  const counts = records.reduce((result, record) => {
-    const date = String(record.inspection_date || '').slice(0, 10);
-    if (date) result.set(date, (result.get(date) || 0) + 1);
-    return result;
-  }, new Map());
-  const recent = [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).slice(-7);
+function renderDashboard(summary) {
+  const recent = (summary.trend || []).map((item) => [item.date, item.count]);
   const maxCount = Math.max(1, ...recent.map(([, count]) => count));
   $('#dashboardTrend').innerHTML = recent.map(([date, value]) => {
     const height = Math.max(14, Math.round((value / maxCount) * 132));
     return `<div class="trend-bar"><b>${value}</b><i style="height:${height}px"></i><span>${escapeHtml(date)}</span></div>`;
   }).join('') || '<p class="muted">暂无趋势数据</p>';
 
-  const pendingRecords = records.filter((record) => record.status === 'pending').slice(0, 5);
+  const pendingRecords = summary.pendingRecords || [];
   $('#dashboardPendingRows').innerHTML = pendingRecords.map((record) => `
     <tr>
       <td>${escapeHtml(record.customer_name || '-')}</td>
@@ -604,6 +616,8 @@ function filters() {
     storeId: form.get('storeId') || '',
     status: form.get('status') || '',
     checkResult: form.get('checkResult') || '',
+    hazardCodes: form.getAll('hazardCodes'),
+    gasSourceIssues: form.getAll('gasSourceIssues'),
     customerType: form.get('customerType') || '',
     inspectorName: form.get('inspectorName') || '',
     deliveryPerson: form.get('deliveryPerson') || '',
@@ -612,44 +626,24 @@ function filters() {
   };
 }
 
-async function loadRecords(button = null, busyText = '正在刷新...') {
+async function loadRecords(button = null, busyText = '正在刷新...', page = 1, query = filters()) {
+  const request = ++state.recordRequest;
+  const token = state.token;
   await runWithButton(button, busyText, async () => {
-    const data = await api(`/records${buildQuery(filters())}`);
-    const records = data.records || [];
-    state.records = records;
-    state.recordPage = 1;
-    updateRecordCounters(records);
+    const data = await api(`/records${buildQuery({ ...query, page, pageSize: state.recordPageSize })}`);
+    if (request !== state.recordRequest || token !== state.token) return;
+    state.records = data.records || [];
+    state.recordPage = data.pagination.page;
+    state.recordTotal = data.pagination.total;
+    state.appliedFilters = query;
+    updateRecordCounters(data.summary);
     renderRows();
-    renderDashboard(records);
+    renderDashboard(data.summary);
   });
 }
 
-async function exportRecords(button = $('#exportBtn')) {
-  await runWithButton(button, '正在导出...', async () => {
-    const response = await fetch(`${apiBase}/export/xlsx${buildQuery(filters())}`, {
-      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {}
-    });
-
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new Error(result.message || '导出失败，请稍后重试。');
-    }
-
-    const blob = await response.blob();
-    if (!blob.size) {
-      throw new Error('导出文件为空，请稍后重试。');
-    }
-
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.download = filenameFromDisposition(response.headers.get('Content-Disposition'));
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    showToast('导出已开始下载');
-  });
+async function exportRecords(button = $('#exportBtn'), photoMode = 'embedded') {
+  await runWithButton(button, '正在提交...', () => createExportJob(photoMode));
 }
 
 async function loadAdminData(button = null) {
@@ -1079,10 +1073,10 @@ async function submitUserAccess(event) {
 
 function renderRows() {
   const records = state.records || [];
-  const pageCount = Math.max(1, Math.ceil(records.length / state.recordPageSize));
+  const pageCount = Math.max(1, Math.ceil(state.recordTotal / state.recordPageSize));
   state.recordPage = Math.min(Math.max(1, state.recordPage), pageCount);
   const start = (state.recordPage - 1) * state.recordPageSize;
-  const pageRecords = records.slice(start, start + state.recordPageSize);
+  const pageRecords = records;
 
   $('#recordRows').innerHTML = pageRecords.map((record) => `
     <tr data-id="${record.id}">
@@ -1093,11 +1087,12 @@ function renderRows() {
       <td>${escapeHtml(record.customer_phone || '')}</td>
       <td>${escapeHtml(record.customer_address || '')}</td>
       <td><span class="${statusClass(record)}">${statusText(record)}</span></td>
+      <td>${escapeHtml(record.delivery_person || '未填写')}</td>
       <td>${escapeHtml(record.inspector_name || '')}</td>
       <td><button type="button" class="link-button" data-action="detail" data-id="${record.id}">详情</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="9">暂无记录</td></tr>';
-  renderRecordPagination(records.length, start, pageRecords.length, pageCount);
+  `).join('') || '<tr><td colspan="10">暂无记录</td></tr>';
+  renderRecordPagination(state.recordTotal, start, pageRecords.length, pageCount);
 }
 
 function renderRecordPagination(total, start, pageSize, pageCount) {
@@ -1115,15 +1110,10 @@ function renderRecordPagination(total, start, pageSize, pageCount) {
   `;
 }
 
-function changeRecordPage(direction) {
-  const total = state.records.length;
-  const pageCount = Math.max(1, Math.ceil(total / state.recordPageSize));
-  if (direction === 'prev') {
-    state.recordPage = Math.max(1, state.recordPage - 1);
-  } else if (direction === 'next') {
-    state.recordPage = Math.min(pageCount, state.recordPage + 1);
-  }
-  renderRows();
+async function changeRecordPage(direction, button) {
+  const pageCount = Math.max(1, Math.ceil(state.recordTotal / state.recordPageSize));
+  const page = direction === 'prev' ? Math.max(1, state.recordPage - 1) : Math.min(pageCount, state.recordPage + 1);
+  await loadRecords(button, '加载中...', page, state.appliedFilters || filters());
 }
 
 async function openDetail(id, button = null) {
@@ -1533,6 +1523,8 @@ $('#dashboardPendingRows').addEventListener('click', (event) => {
 $('#refreshBtn').addEventListener('click', (event) => refreshCurrentModule(event.currentTarget).catch((error) => showToast(error.message)));
 $('#exportBtn').addEventListener('click', (event) => exportRecords(event.currentTarget).catch((error) => showToast(error.message)));
 $('#exportPanelBtn').addEventListener('click', (event) => exportRecords(event.currentTarget).catch((error) => showToast(error.message)));
+$('#exportLinksBtn').addEventListener('click', (event) => exportRecords(event.currentTarget, 'links').catch((error) => showToast(error.message)));
+$('#exportLinksPanelBtn').addEventListener('click', (event) => exportRecords(event.currentTarget, 'links').catch((error) => showToast(error.message)));
 $('#changePasswordBtn').addEventListener('click', openPasswordModal);
 $('#reloadAdminBtn').addEventListener('click', (event) => loadAdminData(event.currentTarget).then(() => showToast('账号列表已刷新')).catch((error) => showToast(error.message)));
 $('#companyForm').addEventListener('submit', (event) => createCompany(event).catch((error) => showToast(error.message)));
@@ -1575,6 +1567,7 @@ $('#filterRegionSelect').addEventListener('change', renderFilterControls);
 $('#resetFiltersBtn').addEventListener('click', (event) => {
   runWithButton(event.currentTarget, '正在重置...', async () => {
     $('#filtersForm').reset();
+    updateMultiFilterLabels();
     renderFilterControls();
     await loadRecords();
     showToast('筛选已重置');
@@ -1588,7 +1581,7 @@ $('#recordRows').addEventListener('click', (event) => {
 $('#recordPager').addEventListener('click', (event) => {
   const button = event.target.closest('[data-page]');
   if (!button || button.disabled) return;
-  changeRecordPage(button.dataset.page);
+  changeRecordPage(button.dataset.page, button).catch((error) => showToast(error.message));
 });
 $('#closeModalBtn').addEventListener('click', closeModal);
 $('#recordModal').addEventListener('click', (event) => {
@@ -1670,5 +1663,23 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+const hazardGroups = [...new Set(hazardItems.map((item) => item.category))];
+$('#filterHazardOptions').innerHTML = hazardGroups.map((category) => (
+  `<div class="multi-filter-category">${escapeHtml(category)}</div>${hazardItems
+    .filter((item) => item.category === category)
+    .map((item) => `<label><input type="checkbox" name="hazardCodes" value="${escapeHtml(item.code)}"><span>${escapeHtml(item.name)}</span></label>`)
+    .join('')}`
+)).join('');
+$('#filterGasOptions').innerHTML = gasSourceIssues.map((item) => `<label><input type="checkbox" name="gasSourceIssues" value="${escapeHtml(item)}"><span>${escapeHtml(item)}</span></label>`).join('');
+function updateMultiFilterLabels() {
+  for (const [name, id] of [['hazardCodes', 'filterHazardCount'], ['gasSourceIssues', 'filterGasCount']]) {
+    const count = document.querySelectorAll(`#filtersForm input[name="${name}"]:checked`).length;
+    $(`#${id}`).textContent = count ? `已选 ${count} 项` : '全部（可多选）';
+  }
+}
+$('#filtersForm').addEventListener('change', updateMultiFilterLabels);
+updateMultiFilterLabels();
+
+configureExportJobs({ api, apiBase, filters, showModule, notify: showToast });
 updateUserSurface();
 restore();

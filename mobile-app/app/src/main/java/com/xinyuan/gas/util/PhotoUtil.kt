@@ -48,7 +48,7 @@ object PhotoUtil {
 
     fun createImageUri(context: Context): Uri {
         val photoDir = File(context.getExternalFilesDir(null), "photos").apply { mkdirs() }
-        val photoFile = File(photoDir, "IMG_${fileNameFormat.format(Date())}.jpg")
+        val photoFile = File(photoDir, "IMG_${fileNameFormat.format(Date())}_${UUID.randomUUID()}.jpg")
         return FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
@@ -67,7 +67,8 @@ object PhotoUtil {
         customerName: String,
         customerPhone: String,
         locationText: String = "",
-        deliveryPerson: String = ""
+        deliveryPerson: String = "",
+        customerType: String = ""
     ) {
         try {
             val inputStream = context.contentResolver.openInputStream(photoUri) ?: return
@@ -88,14 +89,17 @@ object PhotoUtil {
 
             val now = Date()
             val dateLine = SimpleDateFormat("日期：yyyy-MM-dd  时间：HH:mm:ss", Locale.CHINA).format(now)
-            val addressLine = "用户地址：$address"
-            val inspectorLine = if (deliveryPerson.isBlank()) {
-                "检查人：$inspector"
-            } else {
-                "检查人：$inspector  配送员：$deliveryPerson"
-            }
-            val customerLine = "用户：$customerName  电话：$customerPhone"
-            val rawLines = listOf(dateLine, addressLine, inspectorLine, customerLine) +
+            val addressLine = address.takeIf { it.isNotBlank() }?.let { "用户地址：$it" }
+            val inspectorLine = listOfNotNull(
+                inspector.takeIf { it.isNotBlank() }?.let { "检查人：$it" },
+                deliveryPerson.takeIf { it.isNotBlank() }?.let { "配送员：$it" }
+            ).joinToString("  ")
+            val customerLine = listOfNotNull(
+                customerName.takeIf { it.isNotBlank() }?.let { "用户：$it" },
+                customerPhone.takeIf { it.isNotBlank() }?.let { "电话：$it" }
+            ).joinToString("  ")
+            val typeLine = customerType.takeIf { it.isNotBlank() }?.let { "用户类型：$it" }
+            val rawLines = listOfNotNull(dateLine, addressLine, inspectorLine, customerLine, typeLine).filter { it.isNotBlank() } +
                 locationText.lineSequence()
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
@@ -233,6 +237,41 @@ object PhotoUtil {
                 }
                 handler.postDelayed(timeout, LOCATION_TIMEOUT_MILLIS)
             }
+        }
+    }
+
+    /** Own copy only: deleting an imported attachment must never delete an album original. */
+    fun copyAlbumPhoto(context: Context, source: Uri): Uri {
+        val info = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it, null, info) }
+        val extension = when (info.outMimeType) {
+            "image/jpeg" -> "jpg"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> throw IllegalArgumentException("相册照片请使用 JPG、PNG 或 WebP 格式")
+        }
+        val directory = File(context.getExternalFilesDir(null), "photos").apply { mkdirs() }
+        val file = File(directory, "ALBUM_${UUID.randomUUID()}.$extension")
+        try {
+            val input = context.contentResolver.openInputStream(source) ?: error("无法读取相册照片")
+            input.use { sourceStream ->
+                file.outputStream().use { target ->
+                    val buffer = ByteArray(8192)
+                    var total = 0L
+                    while (true) {
+                        val count = sourceStream.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= 10 * 1024 * 1024) { "单张相册照片不能超过 10MB" }
+                        target.write(buffer, 0, count)
+                    }
+                    require(total > 0) { "相册照片为空" }
+                }
+            }
+            return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (error: Exception) {
+            file.delete()
+            throw error
         }
     }
 

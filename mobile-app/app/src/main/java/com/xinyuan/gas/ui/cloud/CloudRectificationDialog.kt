@@ -34,6 +34,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Warning
@@ -87,6 +88,8 @@ import com.xinyuan.gas.ui.theme.OrangeSoft
 import com.xinyuan.gas.ui.theme.RedDanger
 import com.xinyuan.gas.util.PhotoUtil
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -118,6 +121,7 @@ internal fun CloudRectificationDialog(
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var previewPhotoUri by remember { mutableStateOf<String?>(null) }
     var validationError by remember { mutableStateOf("") }
+    var importingPhotos by remember { mutableStateOf(false) }
     val keyboardVisible = WindowInsets.isImeVisible
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -132,7 +136,8 @@ internal fun CloudRectificationDialog(
                     inspector = rectificationPerson.ifBlank { defaultPerson },
                     customerName = detail.customerName,
                     customerPhone = detail.customerPhone,
-                    locationText = locationText
+                    locationText = locationText,
+                    customerType = detail.customerType
                 )
                 photoUris = photoUris + uri.toString()
                 validationError = ""
@@ -165,18 +170,44 @@ internal fun CloudRectificationDialog(
         )
     }
 
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selected ->
+        if (selected.isNotEmpty()) {
+            importingPhotos = true
+            coroutineScope.launch {
+                var added = 0
+                var lastError = ""
+                try {
+                    selected.forEach { source ->
+                        runCatching { withContext(Dispatchers.IO) { PhotoUtil.copyAlbumPhoto(context, source) } }
+                            .onSuccess { uri -> photoUris = photoUris + uri.toString(); added++ }
+                            .onFailure { lastError = it.message ?: "读取相册照片失败" }
+                    }
+                    if (added > 0) validationError = ""
+                    val message = if (lastError.isBlank()) "已从相册添加 $added 张照片" else "已添加 $added 张；部分照片未导入：$lastError"
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                } finally {
+                    importingPhotos = false
+                }
+            }
+        }
+    }
+
     fun dismissAndClean() {
-        if (submitting) return
+        if (submitting || importingPhotos) return
         photoUris.forEach { PhotoUtil.deletePhoto(context, it) }
         pendingPhotoUri?.let { PhotoUtil.deletePhoto(context, it.toString()) }
         onDismiss()
     }
 
     fun submit() {
+        if (importingPhotos) {
+            Toast.makeText(context, "正在导入相册照片，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
         validationError = when {
             rectificationPerson.isBlank() -> "请填写整改人"
             rectificationNote.isBlank() -> "请填写整改情况"
-            photoUris.isEmpty() -> "请至少拍摄一张整改照片"
+            photoUris.isEmpty() -> "请至少拍摄或选择一张整改照片"
             else -> ""
         }
         if (validationError.isNotBlank()) {
@@ -367,7 +398,7 @@ internal fun CloudRectificationDialog(
                                 modifier = Modifier.padding(start = 14.dp, top = 12.dp)
                             )
                             Text(
-                                "可连续拍摄多张，照片会自动添加用户、地址和拍摄时间水印。",
+                                "可拍照或从相册选择多张。相册导入保留照片原有内容，不添加新的拍摄时间水印。",
                                 color = GrayTertiaryText,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
@@ -380,7 +411,7 @@ internal fun CloudRectificationDialog(
                                     Surface(
                                         modifier = Modifier
                                             .size(104.dp)
-                                            .clickable(enabled = !submitting, onClick = ::requestPhoto),
+                                            .clickable(enabled = !submitting && !importingPhotos, onClick = ::requestPhoto),
                                         color = BrandGreenSoft,
                                         shape = RoundedCornerShape(8.dp),
                                         border = BorderStroke(1.dp, BrandGreenSoft)
@@ -396,6 +427,20 @@ internal fun CloudRectificationDialog(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 modifier = Modifier.padding(top = 6.dp)
                                             )
+                                        }
+                                    }
+                                }
+                                item {
+                                    OutlinedButton(
+                                        onClick = { galleryLauncher.launch("image/*") },
+                                        enabled = !submitting && !importingPhotos,
+                                        modifier = Modifier.size(104.dp),
+                                        contentPadding = PaddingValues(4.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                                            Text(if (importingPhotos) "正在导入" else "从相册选择", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
                                 }
@@ -449,7 +494,7 @@ internal fun CloudRectificationDialog(
                                     }
                                 }
                             }
-                            if (validationError == "请至少拍摄一张整改照片") {
+                            if (validationError == "请至少拍摄或选择一张整改照片") {
                                 Text(
                                     validationError,
                                     color = RedDanger,

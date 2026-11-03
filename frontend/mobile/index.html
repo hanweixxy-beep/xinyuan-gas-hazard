@@ -149,7 +149,7 @@
       <section class="form-card intro-card form-step" data-step="user">
         <p class="card-kicker">新增终端核查</p>
         <h2>按现场情况自由填写</h2>
-        <p>所有内容集中在当前页面。拍照前系统会检查水印所需信息，门头定位供本次全部照片统一使用。</p>
+        <p>拍照前只需填写配送员。已填写的用户信息会显示在水印中，未填写的内容不显示；提交记录前须补齐全部必填信息。</p>
       </section>
 
       <section class="form-card form-step" data-step="user">
@@ -176,7 +176,7 @@
 
       <section class="form-card form-step" data-step="user">
         <div class="card-heading"><span class="card-icon">址</span><h2>用户地址与门头照片</h2></div>
-        <p class="hint">请先完成上方信息。门头照片会获取一次高精度定位；本次核查的后续照片统一复用该地址和坐标，不重复调用地址服务。</p>
+        <p class="hint">填写配送员后即可拍摄门头照片并获取定位，其他照片沿用该地址和坐标。用户信息可在提交前补齐。</p>
         <input name="customerAddress" type="hidden">
         <div id="locationCard" class="location-card pending">
           <div><strong id="locationTitle">等待获取用户地址</strong><span id="locationStatus">拍摄门头照片时获取一次高精度定位，后续照片统一复用。</span></div>
@@ -290,6 +290,10 @@
             <input name="rectificationPhotos" type="file" accept="image/*" capture="environment" multiple>
             <span>拍摄整改照片</span><em>可拍多张</em>
           </label>
+          <label class="photo-tile" data-photo-label="相册整改照片">
+            <input name="rectificationGallery" type="file" accept="image/*" multiple>
+            <span>从手机相册选择</span><em>可选择多张，保留照片原有内容</em>
+          </label>
           <button class="primary wide-button" type="submit">提交整改</button>
         </form>
       </article>
@@ -323,6 +327,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20260907-v2.3.0"></script>
+  <script type="module" src="./app.js?v=20261020-photo-gas-multifilter"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@ import {
   customerTypes,
   gasSourceIssues,
   hazardItems
-} from '../../shared/catalog.js';
+} from '../../shared/catalog.js?v=20261020-field-update';
 
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_h5_token';
@@ -1230,17 +1230,18 @@ async function watermarkImage(file, form, capturedAt = new Date()) {
     : '定位坐标：未获取';
   const lines = [
     `日期：${captured.date}  时间：${captured.time}`,
-    `用户：${form.customerName || '-'}  电话：${form.customerPhone || '-'}`,
-    ...wrapText(ctx, `用户地址：${form.customerAddress || '未填写'}`, canvas.width - 36),
-    `检查人：${form.inspectorName || '-'} 配送员：${form.deliveryPerson || '-'}`,
+    [form.customerName && `用户：${form.customerName}`, form.customerPhone && `电话：${form.customerPhone}`].filter(Boolean).join('  '),
+    form.customerType && `用户类型：${form.customerType}`,
+    ...(form.customerAddress ? wrapText(ctx, `用户地址：${form.customerAddress}`, canvas.width - 36) : []),
+    [form.inspectorName && `检查人：${form.inspectorName}`, form.deliveryPerson && `配送员：${form.deliveryPerson}`].filter(Boolean).join('  '),
     locationLine
-  ];
+  ].filter(Boolean);
   const lineHeight = Math.round(fontSize * 1.38);
   const panelHeight = Math.min(canvas.height * 0.46, lines.length * lineHeight + 30);
   ctx.fillStyle = 'rgba(0,0,0,.58)';
   ctx.fillRect(0, canvas.height - panelHeight, canvas.width, panelHeight);
   ctx.fillStyle = '#fff';
-  lines.forEach((line, index) => ctx.fillText(line, 18, canvas.height - panelHeight + 24 + index * lineHeight));
+  lines.forEach((line, index) => ctx.fillText(line, 18, canvas.height - panelHeight + fontSize + 12 + index * lineHeight));
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.86);
@@ -1291,20 +1292,9 @@ function validatePhotoContext(field = '') {
     focusFormField('storefront');
     return '请先拍摄门头照片获取用户地址和定位，再拍摄其他照片。';
   }
-  const required = [
-    ['customerName', form.customerName, '用户名'],
-    ['customerPhone', form.customerPhone, '电话'],
-    ['customerType', form.customerType, '用户类型'],
-    ['inspectorName', form.inspectorName, '检查人'],
-    ['inspectionDate', form.inspectionDate, '检查日期'],
-    ['deliveryPerson', form.deliveryPerson, '配送员']
-  ];
-  const missing = required.find(([, value]) => !value);
-  if (missing) {
-    focusFormField(missing[0]);
-    return field === 'storefront'
-      ? `请先填写${missing[2]}，再拍摄门头照片生成完整水印。`
-      : `请先填写${missing[2]}，再拍照生成完整水印。`;
+  if (!form.deliveryPerson) {
+    focusFormField('deliveryPerson');
+    return '请先填写配送员，再拍照。';
   }
   return '';
 }
@@ -1558,7 +1548,7 @@ async function submitMobileRectification(event) {
   const form = new FormData(event.currentTarget);
   const submitButton = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
   await runWithButton(submitButton, '提交中...', async () => {
-    const photos = await uploadFiles(form.getAll('rectificationPhotos'));
+    const photos = await uploadFiles([...form.getAll('rectificationPhotos'), ...form.getAll('rectificationGallery')]);
     await api(`/records/${state.currentRecord.id}/rectify`, {
       method: 'POST',
       body: JSON.stringify({

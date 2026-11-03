@@ -23,9 +23,17 @@ final class RecordService
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $filters @return list<array<string, mixed>> */
+    public function page(array $user, array $filters, int $page, int $pageSize): array
+    {
+        return $this->records->pageForUser($user, $filters, $page, $pageSize);
+    }
+
     public function export(array $user, array $filters = []): array
     {
-        $records = $this->records->listForUser($user, $filters, 5000);
+        $records = $this->records->listForUser($user, $filters, 5001);
+        if (count($records) > 5000) {
+            throw new HttpException(422, '记录超过 5000 条，请在电脑后台使用后台导出任务，或缩小筛选范围。未生成不完整文件。');
+        }
         return array_map(fn (array $record): array => $this->show((int) $record['id'], $user), $records);
     }
 
@@ -51,6 +59,10 @@ final class RecordService
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function saveDraft(array $user, array $payload): int
     {
+        foreach (['customerName', 'customerPhone', 'customerType', 'customerAddress', 'inspectorName', 'deliveryPerson'] as $key) {
+            $payload[$key] = trim((string) ($payload[$key] ?? ''));
+        }
+        if (empty($payload['inspectionDate'])) $payload['inspectionDate'] = date('Y-m-d');
         $payload = $this->withOrganizationSelection($user, $payload);
         $this->validateDraft($payload);
         return $this->records->saveDraft($user, $payload);
@@ -160,13 +172,6 @@ final class RecordService
     {
         $required = [
             'clientUuid' => '草稿标识',
-            'customerName' => '用户名',
-            'customerPhone' => '电话',
-            'customerType' => '用户类型',
-            'customerAddress' => '地址',
-            'inspectorName' => '检查人',
-            'deliveryPerson' => '配送员',
-            'inspectionDate' => '检查日期',
         ];
 
         $errors = [];
@@ -175,11 +180,11 @@ final class RecordService
                 $errors[$key] = "{$label}不能为空";
             }
         }
-        if (!in_array($payload['customerType'] ?? '', HazardCatalog::customerTypes(), true)) {
+        if (($payload['customerType'] ?? '') !== '' && !in_array($payload['customerType'], HazardCatalog::customerTypes(), true)) {
             $errors['customerType'] = '用户类型不正确';
         }
         if ($errors) {
-            throw new HttpException(422, '草稿内容不完整，请先完成用户与现场信息。', $errors);
+            throw new HttpException(422, '草稿内容格式不正确。', $errors);
         }
     }
 
@@ -190,6 +195,11 @@ final class RecordService
         $photos = is_array($payload['photos'] ?? null) ? $payload['photos'] : [];
         if (count((array) ($photos['storefront'] ?? [])) === 0) {
             $errors['storefrontPhoto'] = '请拍摄并上传门头照片';
+        }
+        if (count((array) ($payload['gasSourceIssues'] ?? [])) > 0
+            && count((array) ($photos['cylinder_qr'] ?? [])) === 0
+            && count((array) ($photos['cylinder'] ?? [])) === 0) {
+            $errors['gasSourcePhoto'] = '气源排查异常时，请上传钢瓶二维码或钢瓶照片';
         }
 
         if (($payload['checkResult'] ?? '') === HazardCatalog::RESULT_NOT_CLEARED) {

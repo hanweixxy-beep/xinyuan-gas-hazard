@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Core\HttpException;
 use App\Domain\HazardCatalog;
 use App\Domain\UserAccess;
+use App\Domain\RecordFilters;
 use PDO;
 
 final class RecordRepository
@@ -14,7 +15,7 @@ final class RecordRepository
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $filters @return list<array<string, mixed>> */
-    public function listForUser(array $user, array $filters = [], int $limit = 1000): array
+    public function listForUser(array $user, array $filters = [], int $limit = 1000, int $offset = 0): array
     {
         [$where, $params] = $this->listConditions($user, $filters);
         $sql = "SELECT r.*, c.name AS company_name, rg.name AS region_name, st.name AS store_name,
@@ -26,14 +27,95 @@ final class RecordRepository
                 INNER JOIN users u ON u.id = r.creator_id
                 WHERE {$where}
                 ORDER BY r.inspection_date DESC, r.id DESC
-                LIMIT :limit";
+                LIMIT :limit OFFSET :offset";
         $stmt = $this->pdo->prepare($sql);
         foreach ($params as $key => $value) {
             $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
         }
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();
+    }
+
+    /** Full filtered statistics and a bounded page; legacy clients remain compatible. */
+    public function pageForUser(array $user, array $filters, int $page, int $pageSize): array
+    {
+        $pageSize = max(1, min(100, $pageSize));
+        $page = max(1, $page);
+        $this->pdo->beginTransaction();
+        try {
+            [$where, $params] = $this->listConditions($user, $filters);
+            $from = "FROM inspection_records r INNER JOIN companies c ON c.id = r.company_id
+                INNER JOIN users u ON u.id = r.creator_id WHERE {$where}";
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) AS total,
+                COALESCE(SUM(r.status = 'pending'), 0) AS pending {$from}");
+            $stmt->execute($params);
+            $counts = $stmt->fetch();
+            $total = (int) $counts['total'];
+            $pending = (int) $counts['pending'];
+            $pageCount = max(1, (int) ceil($total / $pageSize));
+            $page = min($page, $pageCount);
+            $records = $this->listForUser($user, $filters, $pageSize, ($page - 1) * $pageSize);
+            $stmt = $this->pdo->prepare("SELECT r.inspection_date AS date, COUNT(*) AS count {$from}
+                GROUP BY r.inspection_date ORDER BY r.inspection_date DESC LIMIT 7");
+            $stmt->execute($params);
+            $trend = array_reverse(array_map(static fn ($row) => ['date' => $row['date'], 'count' => (int) $row['count']], $stmt->fetchAll()));
+            $pendingRecords = $pending > 0
+                ? $this->listForUser($user, array_replace($filters, ['status' => 'pending']), 5) : [];
+            $this->pdo->commit();
+            return ['records' => $records, 'pagination' => ['page' => $page, 'pageSize' => $pageSize,
+                'total' => $total, 'pageCount' => $pageCount], 'summary' => ['total' => $total,
+                'pending' => $pending, 'done' => $total - $pending, 'trend' => $trend, 'pendingRecords' => $pendingRecords]];
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+    }
+
+    /** Stream an ordered ID snapshot inside the caller's repeatable-read transaction. */
+    public function exportIds(array $user, array $filters): \Generator
+    {
+        [$where, $params] = $this->listConditions($user, $filters);
+        $lastDate = '9999-12-31';
+        $lastId = PHP_INT_MAX;
+        do {
+            $stmt = $this->pdo->prepare("SELECT r.id, r.inspection_date FROM inspection_records r
+                WHERE {$where} AND (r.inspection_date < :page_date OR
+                    (r.inspection_date = :page_equal_date AND r.id < :page_id))
+                ORDER BY r.inspection_date DESC, r.id DESC LIMIT 1000");
+            $stmt->execute($params + ['page_date' => $lastDate, 'page_equal_date' => $lastDate, 'page_id' => $lastId]);
+            $page = $stmt->fetchAll();
+            foreach ($page as $row) {
+                $lastDate = $row['inspection_date'];
+                $lastId = (int) $row['id'];
+                yield $lastId;
+            }
+        } while (count($page) === 1000);
+    }
+
+    /** Fetch a small snapshot batch with four queries, preserving snapshot order. */
+    public function exportBatch(array $user, array $ids): array
+    {
+        if ($ids === []) return [];
+        $ids = array_map('intval', $ids);
+        [$where, $params] = $this->scopeCondition($user, 'r');
+        $in = implode(',', $ids);
+        $stmt = $this->pdo->prepare("SELECT r.*, c.name AS company_name, rg.name AS region_name, st.name AS store_name
+            FROM inspection_records r JOIN companies c ON c.id = r.company_id
+            LEFT JOIN regions rg ON rg.id = r.region_id LEFT JOIN stores st ON st.id = r.store_id
+            WHERE r.id IN ({$in}) AND r.record_state = 'submitted' AND {$where}");
+        $stmt->execute($params);
+        $rows = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $rows[(int) $row['id']] = $row + ['hazards' => [], 'gasSourceIssues' => [], 'photos' => []];
+        }
+        foreach (['record_hazards' => 'hazards', 'record_gas_source_issues' => 'gasSourceIssues', 'record_photos' => 'photos'] as $table => $key) {
+            foreach ($this->pdo->query("SELECT * FROM {$table} WHERE record_id IN ({$in}) ORDER BY id")->fetchAll() as $child) {
+                if (isset($rows[(int) $child['record_id']])) $rows[(int) $child['record_id']][$key][] = $child;
+            }
+        }
+        return array_values(array_filter(array_map(static fn (int $id): ?array => $rows[$id] ?? null, $ids)));
     }
 
     /** @param array<string, mixed> $user @return array<string, mixed>|null */
@@ -409,6 +491,25 @@ final class RecordRepository
         ], true)) {
             $conditions[] = 'r.check_result = :filter_check_result';
             $params['filter_check_result'] = $checkResult;
+        }
+
+        $hazardCodes = RecordFilters::selections($filters['hazardCodes'] ?? []);
+        $legacyCode = trim((string) ($filters['hazardCode'] ?? ''));
+        if ($legacyCode !== '') $hazardCodes[] = $legacyCode;
+        $gasIssues = RecordFilters::selections($filters['gasSourceIssues'] ?? []);
+        foreach ([
+            ['items' => array_unique($hazardCodes), 'table' => 'record_hazards', 'column' => 'hazard_code', 'prefix' => 'hazard'],
+            ['items' => $gasIssues, 'table' => 'record_gas_source_issues', 'column' => 'issue_text', 'prefix' => 'gas'],
+        ] as $selection) {
+            if (!$selection['items']) continue;
+            $placeholders = [];
+            foreach (array_values($selection['items']) as $index => $value) {
+                $key = 'filter_' . $selection['prefix'] . '_' . $index;
+                $placeholders[] = ':' . $key;
+                $params[$key] = $value;
+            }
+            $conditions[] = 'EXISTS (SELECT 1 FROM ' . $selection['table'] . ' f
+                WHERE f.record_id = r.id AND f.' . $selection['column'] . ' IN (' . implode(',', $placeholders) . '))';
         }
 
         return [implode(' AND ', $conditions), $params];

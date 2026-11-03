@@ -80,7 +80,8 @@ object TerminalHazardCatalog {
         "钢瓶无二维码",
         "钢瓶超期或报废",
         "钢瓶充装日期与客户实际使用周期不符",
-        "钢瓶为非鑫远公司气瓶"
+        "钢瓶为非鑫远公司气瓶",
+        "虚假安检"
     )
 
     fun selectedCodes(value: String): Set<String> =
