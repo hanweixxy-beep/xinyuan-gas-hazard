@@ -22,6 +22,7 @@ import com.xinyuan.gas.data.sync.CloudSessionStore
 import com.xinyuan.gas.data.sync.CloudRecordSummary
 import com.xinyuan.gas.data.sync.CloudSettings
 import com.xinyuan.gas.data.sync.HttpCloudSyncClient
+import com.xinyuan.gas.data.sync.cloudErrorMessage
 import com.xinyuan.gas.util.BackupUtil
 import com.xinyuan.gas.util.PhotoUtil
 import com.xinyuan.gas.util.TerminalHazardExcelImportUtil
@@ -289,7 +290,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     markCloudRequestFailure(error)
                     _cloudSaveState.value = CloudSaveUiState(
                         status = CloudSaveStatus.ERROR,
-                        message = error.message ?: "提交失败"
+                        message = cloudErrorMessage(error)
                     )
                     _terminalSaveResult.emit(Result.failure(error))
                 }
@@ -329,7 +330,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                     markCloudRequestFailure(error)
                     _cloudSaveState.value = CloudSaveUiState(
                         status = CloudSaveStatus.ERROR,
-                        message = error.message ?: "云端保存失败"
+                        message = cloudErrorMessage(error)
                     )
                 }
             )
@@ -428,7 +429,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 refreshOrganizationOptions()
                 startLegacyAutoMigration()
             } catch (e: Exception) {
-                _dataActionMessage.emit("云端登录失败：${e.message ?: "未知错误"}")
+                _dataActionMessage.emit("云端登录失败：${cloudErrorMessage(e)}")
             } finally {
                 _cloudLoginInProgress.value = false
             }
@@ -618,7 +619,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 },
                 onFailure = { error ->
                     markCloudRequestFailure(error)
-                    _dataActionMessage.emit("密码修改失败：${error.message ?: "未知错误"}")
+                    _dataActionMessage.emit("密码修改失败：${cloudErrorMessage(error)}")
                 }
             )
             _cloudPasswordChangeInProgress.value = false
@@ -627,7 +628,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun handleCloudFailure(prefix: String, error: Throwable) {
         if (markCloudRequestFailure(error)) return
-        _dataActionMessage.emit("$prefix：${error.message ?: "未知错误"}")
+        _dataActionMessage.emit("$prefix：${cloudErrorMessage(error)}")
     }
 
     private fun markCloudRequestSuccess() {
@@ -650,7 +651,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 message = "当前登录已失效"
             )
             viewModelScope.launch {
-                _dataActionMessage.emit("当前账号已在另一台手机或 H5 登录，请重新登录")
+                _dataActionMessage.emit("当前登录已失效，请重新登录")
             }
             return true
         }
@@ -759,7 +760,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                             terminalRepo.markSyncFailed(record)
                             failedCount += 1
                             if (errors.size < 3) {
-                                errors += "${record.customerName.ifBlank { record.customerPhone }}：${error.message ?: "上传失败"}"
+                                errors += "${record.customerName.ifBlank { record.customerPhone }}：${cloudErrorMessage(error)}"
                             }
                         }
                     }
@@ -774,7 +775,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
         }.getOrElse { error ->
-            "云同步失败：${error.message ?: "未知错误"}"
+            "云同步失败：${cloudErrorMessage(error)}"
         }
     }
 

@@ -10,6 +10,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.xinyuan.gas.reminder.RectificationReminder
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -164,10 +167,20 @@ fun CloudAppRoot(viewModel: InspectionViewModel, openPendingRequest: Int = 0) {
     var migrationAcknowledged by rememberSaveable {
         mutableStateOf(migrationPrefs.getBoolean("acknowledged", false))
     }
-    LaunchedEffect(Unit) {
-        viewModel.dataActionMessage.collectLatest { message ->
-            if (message.isNotBlank()) {
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, viewModel) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var currentToast: Toast? = null
+            try {
+                viewModel.dataActionMessage.collectLatest { message ->
+                    if (message.isNotBlank()) {
+                        currentToast?.cancel()
+                        currentToast = Toast.makeText(context, message, Toast.LENGTH_LONG)
+                        currentToast?.show()
+                    }
+                }
+            } finally {
+                currentToast?.cancel()
             }
         }
     }
