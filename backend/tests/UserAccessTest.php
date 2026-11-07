@@ -26,12 +26,14 @@ assertSameValue('company', UserAccess::recordScope(['role' => 'company_admin']),
 assertSameValue(
     'company',
     UserAccess::recordScope(['role' => 'inspector', 'can_view_company_records' => 1]),
-    '获授权检查员应查看本公司全部记录。'
+    '检查员应查看本公司全部记录。'
 );
 assertSameValue(
-    'own',
+    'company',
     UserAccess::recordScope(['role' => 'inspector', 'can_view_company_records' => 0]),
-    '未授权检查员仍应只查看本人记录。'
+    '旧版关闭公司查看标记的检查员也应参与本公司协同整改。'
 );
+assertSameValue('company', UserAccess::recordScope(['role' => 'inspector']), '无旧版标记的检查员同样享有公司范围。');
+assertSameValue('own', UserAccess::recordScope(['role' => 'unknown']), '未知角色不能获得公司范围。');
 
 echo "UserAccessTest ok\n";

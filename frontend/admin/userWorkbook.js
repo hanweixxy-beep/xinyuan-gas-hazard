@@ -45,7 +45,7 @@ export async function downloadUserTemplate(options) {
     ['手机号', '必填，6-20位数字。建议保持文本格式，不能与现有账号或同一批次其他行重复。'],
     ['角色', `可选：${options.roles.join('、')}。留空默认为检查员。`],
     ['允许登录端', '可选：APP+后台、仅APP、仅后台。留空默认为APP+后台，管理角色不能选择仅APP。'],
-    ['查看本公司全部记录', '是或否，留空默认为否。此字段仅对检查员生效，管理员按角色权限管理。'],
+    ['查看本公司全部记录', '兼容旧模板，可填是、否或留空。检查员现已统一开通本公司全部记录查看与协同整改，导入后均为是；管理员按角色权限管理。'],
     ['初始密码', '必填，至少8个字符，最多72字节，不能全为空格。登录后请及时修改，表格应妥善保管。'],
     ['导入规则', '仅填写“批量创建用户”工作表第2-201行，不改列名及顺序，不使用公式或合并单元格。'],
     ['确认创建', '全部校验通过后才能整批创建；有错误时整批不创建。导入不会覆盖或重置已有账号。'],
@@ -63,7 +63,7 @@ export async function downloadUsers(users) {
   for (const user of users) rows.push([
     user.id, user.company_code, user.company_name, user.name, user.phone, roles[user.role] || user.role,
     scopes[user.login_scope] || user.login_scope,
-    user.role === 'hq_admin' ? '全部公司' : (user.role === 'company_admin' || Number(user.can_view_company_records) === 1 ? '本公司全部记录' : '本人记录'),
+    user.role === 'hq_admin' ? '全部公司' : (['company_admin', 'inspector'].includes(user.role) ? '本公司全部记录' : '本人记录'),
     user.status === 'active' ? '启用' : '停用', user.last_login_at || '', user.created_at || '',
   ]);
   const workbook = XLSX.utils.book_new();

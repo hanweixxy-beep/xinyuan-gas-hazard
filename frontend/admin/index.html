@@ -199,7 +199,7 @@
                     <label>手机号<input name="phone" placeholder="登录手机号"></label>
                     <label>角色<select name="role" id="userRoleSelect"><option value="inspector">检查员</option><option value="company_admin">公司管理员</option><option value="hq_admin">总部管理员</option></select></label>
                     <label>允许登录端<select name="loginScope" id="userLoginScopeSelect"><option value="both">手机 APP + 电脑后台</option><option value="app">仅手机 APP</option><option value="admin">仅电脑后台</option></select></label>
-                    <label id="userCompanyDataField" class="permission-toggle"><input name="canViewCompanyRecords" type="checkbox"><span>可查看本公司全部检查记录</span></label>
+                    <label id="userCompanyDataField" class="permission-toggle"><input name="canViewCompanyRecords" type="checkbox" checked disabled><span>可查看本公司全部记录并协助整改（已统一开启）</span></label>
                     <label>初始密码<input name="password" type="password" placeholder="至少 8 位"></label>
                     <button class="primary" type="submit">新增账号</button>
                   </form>
@@ -301,7 +301,7 @@
         <div class="modal-head"><div><p class="eyebrow">账号权限</p><h2 id="accessModalTitle">编辑账号权限</h2></div><button id="closeAccessModalBtn" type="button">关闭</button></div>
         <form id="accessForm" class="rectify">
           <label>允许登录端<select name="loginScope" id="accessLoginScopeSelect"></select></label>
-          <label id="accessCompanyDataField" class="permission-toggle"><input name="canViewCompanyRecords" type="checkbox"><span>允许查看本公司全部检查记录</span></label>
+          <label id="accessCompanyDataField" class="permission-toggle"><input name="canViewCompanyRecords" type="checkbox" checked disabled><span>可查看本公司全部记录并协助整改（已统一开启）</span></label>
           <p class="muted">修改后该账号需要重新登录。</p>
           <button class="primary" type="submit">保存权限</button>
         </form>
@@ -339,6 +339,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20261026-single-link"></script>
+  <script type="module" src="./app.js?v=20261106-company-rectification"></script>
 </body>
 </html>

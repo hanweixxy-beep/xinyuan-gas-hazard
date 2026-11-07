@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Core\Config;
 use App\Core\HttpException;
+use App\Domain\UserAccess;
 use App\Repositories\UserRepository;
 
 final class AuthService
@@ -90,7 +91,7 @@ final class AuthService
             'phone' => $user['phone'],
             'role' => $user['role'],
             'loginScope' => $user['login_scope'] ?? 'both',
-            'canViewCompanyRecords' => !empty($user['can_view_company_records']),
+            'canViewCompanyRecords' => UserAccess::canViewCompanyRecords($user),
         ];
     }
 

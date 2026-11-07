@@ -1,4 +1,4 @@
-import { downloadUserTemplate, downloadUsers, readUserFile } from './userWorkbook.js?v=20260915';
+import { downloadUserTemplate, downloadUsers, readUserFile } from './userWorkbook.js?v=20261106-company-rectification';
 import { hazardItems, gasSourceIssues } from '../../shared/catalog.js?v=20261020-field-update';
 import { configureExportJobs, createExportJob, refreshExportJobs, setExportVisible } from './exportJobs.js?v=20261026-single-link';
 
@@ -361,8 +361,8 @@ function userStatusText(status) {
 
 function dataScopeLabel(user) {
   if (user.role === 'hq_admin') return '全部公司';
-  if (user.role === 'company_admin') return '本公司';
-  return Number(user.can_view_company_records) === 1 ? '本公司' : '仅本人录入';
+  if (user.role === 'company_admin' || user.role === 'inspector') return '本公司';
+  return '仅本人录入';
 }
 
 async function api(path, options = {}) {
@@ -720,9 +720,7 @@ function renderLoginScopeOptions() {
     .map((scope) => `<option value="${scope}">${loginScopeLabel(scope)}</option>`)
     .join('');
   $('#userCompanyDataField').classList.toggle('hidden', role !== 'inspector');
-  if (role !== 'inspector') {
-    $('#userCompanyDataField input').checked = false;
-  }
+  $('#userCompanyDataField input').checked = role === 'inspector';
 }
 
 function selectOptions(select, items, placeholder, label, selectedValue = '') {
@@ -897,7 +895,7 @@ async function createUser(event) {
         phone: String(form.get('phone') || '').trim(),
         role: String(form.get('role') || ''),
         loginScope: String(form.get('loginScope') || 'both'),
-        canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on',
+        canViewCompanyRecords: form.get('role') === 'inspector',
         password: String(form.get('password') || '')
       })
     });
@@ -1037,7 +1035,7 @@ function openAccessModal(id) {
     .join('');
   $('#accessLoginScopeSelect').value = user.login_scope || 'both';
   $('#accessCompanyDataField').classList.toggle('hidden', user.role !== 'inspector');
-  $('#accessCompanyDataField input').checked = user.role === 'inspector' && Number(user.can_view_company_records) === 1;
+  $('#accessCompanyDataField input').checked = user.role === 'inspector';
   $('#accessModal').classList.remove('hidden');
   $('#accessModal').setAttribute('aria-hidden', 'false');
 }
@@ -1062,7 +1060,7 @@ async function submitUserAccess(event) {
       method: 'POST',
       body: JSON.stringify({
         loginScope: String(form.get('loginScope') || 'both'),
-        canViewCompanyRecords: form.get('canViewCompanyRecords') === 'on'
+        canViewCompanyRecords: state.users.find((user) => Number(user.id) === state.accessUserId)?.role === 'inspector'
       })
     });
     closeAccessModal();

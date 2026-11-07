@@ -22,8 +22,7 @@ final class UserAccess
     {
         return match ((string) ($user['role'] ?? '')) {
             'hq_admin' => 'all',
-            'company_admin' => 'company',
-            'inspector' => !empty($user['can_view_company_records']) ? 'company' : 'own',
+            'company_admin', 'inspector' => 'company',
             default => 'own',
         };
     }

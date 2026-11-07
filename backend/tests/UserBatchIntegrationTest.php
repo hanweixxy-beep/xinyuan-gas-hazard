@@ -72,6 +72,8 @@ $previewJson = json_encode($preview);
 check(!str_contains($previewJson, 'password') && !str_contains($previewJson, 'Fixture-Secret'), 'Preview exposes a password.');
 check($preview['rows'][0]['phone'] === $valid[0]['phone'], 'Leading zero in phone lost.');
 check($preview['rows'][0]['role'] === '检查员' && $preview['rows'][0]['loginScope'] === 'APP+后台', 'Defaults incorrect.');
+check($preview['rows'][0]['canViewCompanyRecords'] === '是', 'Default inspector company collaboration must be visible in preview.');
+check($batch->preview($manager, [row(2, ['canViewCompanyRecords' => '否'])])['rows'][0]['canViewCompanyRecords'] === '是', 'Legacy no flag must normalize to company collaboration.');
 
 $invalid = [row(2), row(3, ['name' => ''])];
 check($batch->preview($hq, $invalid)['errorCount'] === 1, 'Missing name not flagged.');
@@ -106,6 +108,7 @@ $created = $users->findByPhone(row(2)['phone']);
 check($created['name'] === '测试用户2' && $created['phone'] === row(2)['phone'], 'Text normalization failed.');
 check(password_verify('Fixture-Secret-123', $created['password_hash']), 'Initial password hash is invalid.');
 check($created['region_id'] === null && $created['store_id'] === null && $created['role'] === 'inspector', 'Account organization or role incorrect.');
+check((int)$created['can_view_company_records'] === 1, 'Default imported inspector must receive company collaboration.');
 $otherCreated = $users->findByPhone(row(3)['phone']);
 check((int) $otherCreated['can_view_company_records'] === 1 && $otherCreated['login_scope'] === 'app', 'Inspector permissions not retained.');
 rejected(fn () => $batch->create($manager, $valid));

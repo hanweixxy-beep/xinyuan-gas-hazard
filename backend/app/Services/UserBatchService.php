@@ -118,7 +118,7 @@ final class UserBatchService
             $previews[] = [
                 'rowNumber' => $rowNumber, 'companyCode' => $companyCode, 'companyName' => $company['name'] ?? '',
                 'name' => trim($raw['name']), 'phone' => $phone, 'role' => $roleLabel,
-                'loginScope' => $scopeLabel, 'canViewCompanyRecords' => $role === 'inspector' ? $viewLabel : '管理角色权限',
+                'loginScope' => $scopeLabel, 'canViewCompanyRecords' => $role === 'inspector' ? '是' : '管理角色权限',
                 'errors' => $errors,
             ];
         }

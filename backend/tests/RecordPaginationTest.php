@@ -67,8 +67,12 @@ $check(count($all) === 1205 && count(array_unique($all)) === 1205, 'Every record
 $check($all === array_merge(array_reverse(array_slice($ids, 0, 1200)), array_reverse(array_slice($ids, 1200))), 'Stable date and ID order');
 $last = $service->page($user, [], 9999, 50);
 $check($last['pagination']['page'] === 25 && count($last['records']) === 5, 'Oversized page clamps to last page');
-$empty = $service->page($other, [], 1, 50);
-$check($empty['pagination']['total'] === 0 && $empty['summary']['pendingRecords'] === [], 'Creator permission preserved in aggregates and rows');
+$shared = $service->page($other, [], 1, 50);
+$check($shared['pagination']['total'] === 1205 && $shared['summary']['pending'] === 5, 'Coworker sees company rows and matching aggregates');
+$otherCompany = $companies->create('分页隔离公司', 'PAGE_OTHER');
+$outsider = array_merge($other, ['company_id' => $otherCompany]);
+$empty = $service->page($outsider, ['companyId' => $company], 1, 50);
+$check($empty['pagination']['total'] === 0 && $empty['summary']['pendingRecords'] === [], 'Company boundary preserved in aggregates and rows');
 $filtered = $service->page($user, ['hazardCodes' => ['alarm_missing', 'hose_tee'], 'gasSourceIssues' => ['虚假安检']], 1, 50);
 $check($filtered['pagination']['total'] === 5 && $filtered['summary']['pending'] === 5, 'Multi filters shared by page and aggregates');
 $done = $service->page($user, ['status' => 'done'], 1, 50);

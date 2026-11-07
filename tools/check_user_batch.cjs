@@ -45,7 +45,8 @@ function file(buffer, name = 'users.xlsx') { return { name, mimeType: 'applicati
       const endpoint = new URL(route.request().url()).pathname.replace('/api', '');
       let data;
       if (endpoint === '/auth/me') data = { user: { id: 1, companyId: 1, name: '测试管理员', companyName: '测试公司', role: 'hq_admin', loginScope: 'both' } };
-      else if (endpoint === '/records') data = { records: [] };
+      else if (endpoint === '/records') data = { records: [], pagination: { total: 0, page: 1, pageSize: 50, pageCount: 1 },
+        summary: { total: 0, pending: 0, done: 0, trend: [], pendingRecords: [] } };
       else if (endpoint === '/admin/companies') data = { companies: [{ id: 1, name: '测试公司', code: 'TEST', status: 'active' }] };
       else if (endpoint === '/admin/organization') data = { regions: [], stores: [] };
       else if (endpoint === '/admin/users') data = { users: fixture.users };
@@ -55,7 +56,7 @@ function file(buffer, name = 'users.xlsx') { return { name, mimeType: 'applicati
         const { rows } = route.request().postDataJSON();
         fixture.lastRows = rows;
         data = { total: rows.length, validCount: rows.length, errorCount: 0, rows: rows.map(({ password, ...row }) => ({ ...row,
-          companyName: '测试公司', role: row.role || '检查员', loginScope: row.loginScope || 'APP+后台', canViewCompanyRecords: row.canViewCompanyRecords || '否',
+          companyName: '测试公司', role: row.role || '检查员', loginScope: row.loginScope || 'APP+后台', canViewCompanyRecords: '是',
           errors: rows.filter((other) => other.phone === row.phone).length > 1 ? ['手机号与其他行重复'] : [] })) };
         data.errorCount = data.rows.filter((row) => row.errors.length).length;
         data.validCount -= data.errorCount;
@@ -70,6 +71,9 @@ function file(buffer, name = 'users.xlsx') { return { name, mimeType: 'applicati
         fixture.users.push(...rows.map((row, i) => ({ id: 10 + i, company_id: 1, company_code: row.companyCode, company_name: '测试公司',
           name: row.name, phone: row.phone, role: 'inspector', login_scope: 'both', status: 'active' })));
         data = { createdCount: rows.length };
+      } else if (/^\/admin\/users\/\d+\/access$/.test(endpoint)) {
+        fixture.lastAccess = route.request().postDataJSON();
+        data = {};
       } else throw new Error(`Unexpected API: ${endpoint}`);
       await route.fulfill({ json: { ok: true, data } });
     });
@@ -77,6 +81,8 @@ function file(buffer, name = 'users.xlsx') { return { name, mimeType: 'applicati
     await page.goto(process.env.USER_BATCH_ADMIN_URL || `http://127.0.0.1:${server.address().port}/frontend/admin/`);
     await page.locator('[data-module="admin"]').click();
     await page.locator('#userRows tr').waitFor();
+    assert(await page.locator('#userCompanyDataField input').isChecked());
+    assert(await page.locator('#userCompanyDataField input').isDisabled());
 
     const templateDownload = page.waitForEvent('download');
     await page.locator('#userTemplateBtn').click();
@@ -153,6 +159,21 @@ function file(buffer, name = 'users.xlsx') { return { name, mimeType: 'applicati
     await page.waitForFunction(() => document.querySelectorAll('#userRows tr').length === 3);
     assert.equal(await page.locator('#userImportFile').inputValue(), '');
     assert.equal(await page.locator('#userImportRows tr').count(), 0);
+    assert.equal(await page.locator('#userRows tr').nth(1).locator('td').nth(5).textContent(), '本公司');
+    await page.locator('[data-action="edit-access"][data-id="10"]').click();
+    assert(await page.locator('#accessCompanyDataField input').isChecked());
+    assert(await page.locator('#accessCompanyDataField input').isDisabled());
+    assert.match(await page.locator('#accessCompanyDataField').textContent(), /协助整改/);
+    await page.locator('#accessModal .modal-panel').screenshot({ path: path.join(output, 'company-rectification-access.png') });
+    await page.locator('#accessForm button[type="submit"]').click();
+    await page.locator('#accessModal').waitFor({ state: 'hidden' });
+    assert.equal(fixture.lastAccess.canViewCompanyRecords, true);
+    const sharedExportDownload = page.waitForEvent('download');
+    await page.locator('#exportUsersBtn').click();
+    const sharedExportPath = path.join(output, 'users-company-scope.xlsx');
+    await (await sharedExportDownload).saveAs(sharedExportPath);
+    const sharedExport = XLSX.read(fs.readFileSync(sharedExportPath), { type: 'buffer' }).Sheets['用户信息'];
+    assert.equal(sharedExport.H3.v, '本公司全部记录');
 
     await page.locator('#openUserImportBtn').click();
     await page.waitForFunction(() => !document.querySelector('#userImportFile').disabled);
@@ -169,7 +190,7 @@ function file(buffer, name = 'users.xlsx') { return { name, mimeType: 'applicati
     assert(await page.locator('#commitUserImportBtn').isDisabled());
     await page.locator('#cancelUserImportBtn').click();
     assert.deepEqual(errors, []);
-    console.log('User batch UI: template/export safety, actual worker parsing, validation, preview, double-submit, errors, cleanup and 1080/1440px layout passed.');
+    console.log('User batch UI: company collaboration display/access/export, template safety, actual worker parsing, validation, preview, double-submit, errors, cleanup and 1080/1440px layout passed.');
     await context.close();
   } finally {
     if (browser) await browser.close();

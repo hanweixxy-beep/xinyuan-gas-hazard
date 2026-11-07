@@ -209,7 +209,7 @@ final class AdminService
         $phone = trim((string) ($payload['phone'] ?? ''));
         $role = (string) ($payload['role'] ?? '');
         $loginScope = (string) ($payload['loginScope'] ?? UserAccess::defaultLoginScope($role));
-        $canViewCompanyRecords = $role === 'inspector' && !empty($payload['canViewCompanyRecords']);
+        $canViewCompanyRecords = $role === 'inspector';
         $password = (string) ($payload['password'] ?? '');
         $companyId = $this->resolveCompanyId($actor, $payload);
 
@@ -262,7 +262,7 @@ final class AdminService
             throw new HttpException(422, '登录权限不正确。');
         }
 
-        $canViewCompanyRecords = $role === 'inspector' && !empty($payload['canViewCompanyRecords']);
+        $canViewCompanyRecords = $role === 'inspector';
         $this->users->updateAccess(
             $id,
             $loginScope,

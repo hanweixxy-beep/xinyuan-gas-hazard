@@ -71,12 +71,13 @@ $expectIds = function (array $actual, array $expected, string $label) use ($chec
     $check($ids === $expected, $label);
 };
 $companyAdmin = array_merge($userA, ['role' => 'company_admin']);
-$companyInspector = array_merge($userA, ['can_view_company_records' => 1]);
+$companyInspector = array_merge($userA, ['can_view_company_records' => 0]);
 $filter = ['hazardCode' => 'alarm_missing'];
 $expectIds($service->list($hq, $filter), [$alarmA, $rectifiedA, $alarmB], 'HQ filter / no duplicate rows / no drafts');
 $expectIds($service->list($companyAdmin, $filter), [$alarmA, $rectifiedA], 'Company boundary');
-$expectIds($service->list($userA, $filter), [$alarmA], 'Inspector own records only');
-$expectIds($service->list($companyInspector, $filter), [$alarmA, $rectifiedA], 'Company-wide inspector permission');
+$expectIds($service->list($userA, $filter), [$alarmA, $rectifiedA], 'Inspector company records');
+$expectIds($service->list($companyInspector, $filter), [$alarmA, $rectifiedA], 'Legacy own-only inspector now has company permission');
+$expectIds($service->list($companyInspector, $filter + ['companyId' => $companyB]), [$alarmA, $rectifiedA], 'Inspector cannot override company scope');
 $expectIds($service->list($companyAdmin, $filter + ['companyId' => $companyB]), [$alarmA, $rectifiedA], 'Cannot override company scope');
 $expectIds($service->list($hq, $filter + ['companyId' => $companyB]), [$alarmB], 'HQ company combination');
 $expectIds($service->list($hq, $filter + ['status' => 'rectified']), [$rectifiedA], 'Rectified combination');
@@ -84,7 +85,7 @@ $expectIds($service->list($userA, $filter + ['dateFrom' => '2026-10-20']), [], '
 $expectIds($service->list($userA, ['hazardCode' => 'hose_tee']), [$alarmA, $hoseA], 'Second hazard on same record');
 $expectIds($service->list($userA, ['hazardCode' => 'missing_code']), [], 'Unknown code must not export everything');
 $expectIds($service->list($userA, ['hazardCode' => "alarm_missing' OR 1=1 --"]), [], 'Bound parameter injection protection');
-$expectIds($service->list($userA, ['hazardCode' => '']), [$alarmA, $hoseA, $clearedA], 'Reset / backward compatibility');
+$expectIds($service->list($userA, ['hazardCode' => '']), [$alarmA, $hoseA, $clearedA, $rectifiedA], 'Reset / backward compatibility');
 $expectIds($service->export($companyAdmin, $filter), [$alarmA, $rectifiedA], 'Export uses same filters and permissions');
 
 $token = bin2hex(random_bytes(32));
@@ -93,7 +94,7 @@ $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
 $_GET = $filter;
 $auth = new AuthService($users, new Config([]));
 $controller = new RecordController($auth, $service);
-$expectIds($controller->index(new Request())['records'], [$alarmA], 'List controller passes hazardCode');
+$expectIds($controller->index(new Request())['records'], [$alarmA, $rectifiedA], 'List controller passes hazardCode and company scope');
 $exportController = new ExportController($auth, $service, new ExportService());
 ob_start();
 $exportController->xlsx(new Request());
@@ -106,7 +107,7 @@ try {
     $sheet = $zip->getFromName('xl/worksheets/sheet1.xml');
     $zip->close();
     $check(str_contains($sheet, 'MATCH_ALARM_A'), 'Selected record exported');
-    $check(!str_contains($sheet, 'EXCLUDED_') && !str_contains($sheet, 'MATCH_RECTIFIED_A'), 'Unmatched and unauthorized records excluded');
+    $check(!str_contains($sheet, 'EXCLUDED_') && str_contains($sheet, 'MATCH_RECTIFIED_A'), 'Company coworker included, unmatched and other company excluded');
     $check(str_contains($sheet, '有三通'), 'Other hazards on selected record are preserved');
 } finally {
     @unlink($temp);

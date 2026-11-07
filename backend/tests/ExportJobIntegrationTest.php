@@ -96,7 +96,7 @@ try {
     $makeRecord($other, 'MUST_NOT_EXPORT', ['storefront' => [$photo]]);
     $jobs = new ExportJobService($pdo, $records, $root . '/jobs', $root . '/uploads', 1, 300, 41943040);
     $job = $jobs->create($user, ['hazardCode' => 'alarm_missing']);
-    $check($job['total'] === 2 && $job['status'] === 'queued', 'Snapshot includes only owned records');
+    $check($job['total'] === 2 && $job['status'] === 'queued', 'Snapshot includes only company records');
     $reject(fn () => $jobs->create($user, []), 409);
     $reject(fn () => $jobs->cancel($other, $job['id']), 404);
     $makeRecord($user, 'NEW_AFTER_SNAPSHOT');
@@ -156,9 +156,9 @@ try {
     $check(count($byteBoundJobs->list($user)[0]['files']) === 2, 'Compressed image byte budget triggers a new part');
     $users->createSession((int) $user['id'], bin2hex(random_bytes(32)), 1, 'admin');
     $reject(fn () => $jobs->redeem($ticket, $job['id'], 1), 401);
-    $pdo->prepare('UPDATE users SET can_view_company_records = 1 WHERE id = ?')->execute([$user['id']]);
+    $pdo->prepare('UPDATE users SET company_id = ? WHERE id = ?')->execute([$company2, $user['id']]);
     $reject(fn () => $jobs->ticket($user, $token, $job['id'], 1), 403);
-    $pdo->prepare('UPDATE users SET can_view_company_records = 0 WHERE id = ?')->execute([$user['id']]);
+    $pdo->prepare('UPDATE users SET company_id = ? WHERE id = ?')->execute([$company, $user['id']]);
 
     $cancel = $jobs->create($user, []);
     $jobs->cancel($user, $cancel['id']);
@@ -184,7 +184,7 @@ try {
     for ($n = 1; $n <= 6001; $n++) $insert->execute([$company, $largeUser['id'], sprintf('BULK_%05d', $n)]);
     $pdo->commit();
     $largeJobs = new ExportJobService($pdo, $records, $root . '/jobs', $root . '/uploads');
-    $large = $largeJobs->create($largeUser, []);
+    $large = $largeJobs->create($largeUser, ['keyword' => 'BULK_']);
     $check($large['total'] === 6001, 'Snapshot exceeds 5000 without truncation');
     $started = microtime(true);
     $largeJobs->workOnce();
@@ -212,7 +212,7 @@ try {
         'cylinder' => [['filePath' => '/uploads/%2e%2e/secret.jpg']]]);
     $linkJobs = new ExportJobService($pdo, $records, $root . '/jobs', $root . '/uploads', baseUrl: 'https://www.gashbxy.com');
     $reject(fn () => $linkJobs->create($linkUser, ['photoMode' => 'unknown']), 422);
-    $link = $linkJobs->create($linkUser, ['photoMode' => 'links', 'hazardCodes' => ['alarm_missing']]);
+    $link = $linkJobs->create($linkUser, ['photoMode' => 'links', 'hazardCodes' => ['alarm_missing'], 'keyword' => 'LINK_ONLY']);
     $check($link['photoMode'] === 'links' && $link['total'] === 1, 'Link mode and filters preserved');
     $check($linkJobs->workOnce(), 'Link worker runs');
     $linkDone = $linkJobs->list($linkUser)[0];
@@ -230,7 +230,7 @@ try {
     $sample = getenv('LINK_EXPORT_SAMPLE');
     if ($sample) copy($root . '/jobs/job-' . $link['id'] . '/' . $linkDone['files'][0]['name'], $sample);
     $zip->close();
-    $largeLink = $linkJobs->create($largeUser, ['photoMode' => 'links']);
+    $largeLink = $linkJobs->create($largeUser, ['photoMode' => 'links', 'keyword' => 'BULK_']);
     $linkJobs->workOnce();
     $largeLinkDone = $linkJobs->list($largeUser)[0];
     $check($largeLinkDone['status'] === 'finished' && array_sum(array_column($largeLinkDone['files'], 'records')) === 6001, 'Link mode exports over 5000 records without truncation');
@@ -240,7 +240,7 @@ try {
         $photos = array_fill(0, $n < 889 ? 4 : 3, ['filePath' => '/uploads/link-only.jpg']);
         $makeRecord($singleUser, 'SINGLE_' . $n, ['storefront' => $photos]);
     }
-    $single = $linkJobs->create($singleUser, ['photoMode' => 'links']);
+    $single = $linkJobs->create($singleUser, ['photoMode' => 'links', 'keyword' => 'SINGLE_']);
     $linkJobs->workOnce();
     $singleDone = $linkJobs->list($singleUser)[0];
     $check($singleDone['status'] === 'finished' && count($singleDone['files']) === 1, '2330 records and 7879 photo references produce one workbook');

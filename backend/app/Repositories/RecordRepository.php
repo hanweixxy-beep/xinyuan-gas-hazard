@@ -368,36 +368,51 @@ final class RecordRepository
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function rectify(int $id, array $user, array $payload): void
     {
-        $record = $this->findForUser($id, $user);
-        if (!$record) {
-            return;
-        }
-        if (($user['role'] ?? '') === 'inspector' && (int) $record['creator_id'] !== (int) $user['id']) {
-            throw new HttpException(403, '公司数据查看权限不包含修改或整改他人记录。');
-        }
+        [$where, $params] = $this->scopeCondition($user, 'r');
+        $params['id'] = $id;
+        $this->pdo->beginTransaction();
+        try {
+            $check = $this->pdo->prepare(
+                "SELECT r.id, r.status FROM inspection_records r
+                 WHERE r.id = :id AND r.record_state = 'submitted' AND {$where}
+                 FOR UPDATE"
+            );
+            $check->execute($params);
+            $record = $check->fetch();
+            if (!$record) {
+                throw new HttpException(404, '记录不存在，或你没有权限查看。');
+            }
+            if ($record['status'] !== 'pending') {
+                throw new HttpException(409, '该记录已完成整改或无需整改，请刷新记录后查看。');
+            }
 
-        $stmt = $this->pdo->prepare(
-            "UPDATE inspection_records
-             SET status = 'rectified',
-                 check_result = :check_result,
-                 rectification_date = :rectification_date,
-                 rectification_note = :rectification_note,
-                 rectification_person = :rectification_person
-             WHERE id = :id"
-        );
-        $stmt->execute([
-            'id' => $id,
-            'check_result' => HazardCatalog::RESULT_RECTIFIED,
-            'rectification_date' => $payload['rectificationDate'],
-            'rectification_note' => $payload['rectificationNote'] ?? '',
-            'rectification_person' => $payload['rectificationPerson'] ?? $user['name'] ?? '',
-        ]);
-
-        foreach ($payload['photos'] ?? [] as $filePath) {
-            $this->insertPhoto($id, [
-                'type' => 'rectification',
-                'filePath' => (string) $filePath,
+            $stmt = $this->pdo->prepare(
+                "UPDATE inspection_records
+                 SET status = 'rectified',
+                     check_result = :check_result,
+                     rectification_date = :rectification_date,
+                     rectification_note = :rectification_note,
+                     rectification_person = :rectification_person
+                 WHERE id = :id"
+            );
+            $stmt->execute([
+                'id' => $id,
+                'check_result' => HazardCatalog::RESULT_RECTIFIED,
+                'rectification_date' => $payload['rectificationDate'],
+                'rectification_note' => $payload['rectificationNote'] ?? '',
+                'rectification_person' => $payload['rectificationPerson'] ?? $user['name'] ?? '',
             ]);
+
+            foreach ($payload['photos'] ?? [] as $filePath) {
+                $this->insertPhoto($id, [
+                    'type' => 'rectification',
+                    'filePath' => (string) $filePath,
+                ]);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $exception;
         }
     }
 
