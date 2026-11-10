@@ -88,7 +88,13 @@ data class CloudRecordSummary(
     val inspectionDate: String,
     val checkResult: String,
     val status: String,
-    val inspectorName: String
+    val inspectorName: String,
+    val deliveryPerson: String = "",
+    val companyName: String = "",
+    val regionId: Long = 0,
+    val regionName: String = "",
+    val storeId: Long = 0,
+    val storeName: String = ""
 )
 
 data class CloudRecordHazard(
@@ -306,7 +312,13 @@ class HttpCloudSyncClient(
                             inspectionDate = item.optString("inspection_date"),
                             checkResult = item.optString("check_result"),
                             status = item.optString("status"),
-                            inspectorName = item.optString("inspector_name")
+                            inspectorName = item.textOrBlank("inspector_name"),
+                            deliveryPerson = item.textOrBlank("delivery_person"),
+                            companyName = item.textOrBlank("company_name"),
+                            regionId = item.optLong("region_id"),
+                            regionName = item.textOrBlank("region_name"),
+                            storeId = item.optLong("store_id"),
+                            storeName = item.textOrBlank("store_name")
                         )
                     )
                 }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#faf9f5">
   <title>淮北鑫远燃气隐患排查</title>
-  <link rel="stylesheet" href="./styles.css?v=20260903-v2.2.0">
+  <link rel="stylesheet" href="./styles.css?v=20261110-record-filters">
 </head>
 <body>
   <main class="mobile-app">
@@ -99,10 +99,22 @@
           <label><input type="radio" name="status" value="pending"><span>待整改 <b id="pendingStatusCount">0</b></span></label>
           <label><input type="radio" name="status" value="done"><span>已完成 <b id="doneStatusCount">0</b></span></label>
         </div>
+        <details class="record-extra-filters" id="recordExtraFilters">
+          <summary id="recordFilterSummary">筛选</summary>
+          <div class="record-filter-fields">
+            <label>配送工<input name="recordDeliveryPerson" placeholder="输入姓名"></label>
+            <label>检查人<input name="recordInspectorName" placeholder="输入姓名"></label>
+            <label class="record-organization-field">片区<select name="recordRegionId" aria-label="片区"><option value="">全部片区</option></select></label>
+            <label class="record-organization-field">门店<select name="recordStoreId" aria-label="门店"><option value="">全部门店</option></select></label>
+          </div>
+          <button id="clearRecordFiltersBtn" type="button">重置筛选</button>
+        </details>
         <button class="primary filter-submit" type="submit">查询</button>
       </form>
 
+      <p id="recordFilterResult" class="record-filter-result" aria-live="polite"></p>
       <section id="mobileRecordList" class="record-list"></section>
+      <button id="recordsMoreBtn" class="records-more hidden" type="button">显示更多记录</button>
       <p class="admin-note">数据下载请登录 www.gashbxy.com/admin/</p>
     </section>
 
@@ -327,6 +339,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20261108-stove-hazard"></script>
+  <script type="module" src="./app.js?v=20261110-record-filters"></script>
 </body>
 </html>

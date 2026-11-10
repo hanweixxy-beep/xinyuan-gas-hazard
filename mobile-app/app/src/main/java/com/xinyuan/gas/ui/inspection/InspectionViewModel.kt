@@ -460,6 +460,11 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
             val result = withContext(Dispatchers.IO) {
                 cloudClient(settings).fetchTerminalRecords()
             }
+            if (settings.token != _cloudSettings.value.token) {
+                _cloudRecordsLoading.value = false
+                if (_cloudSettings.value.isLoggedIn) refreshCloudRecords()
+                return@launch
+            }
             result.fold(
                 onSuccess = {
                     _cloudRecords.value = it

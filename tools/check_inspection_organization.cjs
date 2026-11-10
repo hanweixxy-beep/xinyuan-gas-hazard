@@ -19,7 +19,11 @@ async function mockApi(page, fixture) {
       role: fixture.admin ? 'hq_admin' : 'inspector', loginScope: 'both' };
     let data;
     if (endpoint === '/auth/me') data = { user };
-    else if (endpoint === '/records') data = { records: [] };
+    else if (endpoint === '/records') data = {
+      records: [],
+      pagination: { page: 1, total: 0, pageCount: 1 },
+      summary: { total: 0, pending: 0, done: 0, trend: [], pendingRecords: [] }
+    };
     else if (endpoint === '/organization-options') data = {
       companyId: 1, regions, stores: stores.filter((store) => store.id !== fixture.disabledStore),
       default: { regionId: 5, storeId: 55, regionName: '旧账号片区', storeName: '旧账号门店' },

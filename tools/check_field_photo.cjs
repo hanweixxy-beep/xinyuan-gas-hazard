@@ -46,7 +46,11 @@ const output = process.env.FIELD_QA_OUTPUT || path.join(root, 'work/field-photo-
         const endpoint = new URL(route.request().url()).pathname.replace('/api', '');
         let data;
         if (endpoint === '/auth/me') data = { user: { id: 1, name: '测试检查员', companyId: 1, companyName: '测试公司', role: 'inspector', loginScope: 'both' } };
-        else if (endpoint === '/records') data = { records: [record] };
+        else if (endpoint === '/records') data = {
+          records: [record],
+          pagination: { page: 1, total: 1, pageCount: 1 },
+          summary: { total: 1, pending: 1, done: 0 }
+        };
         else if (endpoint === '/records/1') data = { record };
         else if (endpoint === '/organization-options') data = { companyId: 1, regions: [{ id: 1, name: '测试片区' }], stores: [{ id: 1, regionId: 1, name: '测试门店' }] };
         else if (endpoint === '/location/reverse-geocode') { geocodes++; data = { address: '测试定位地址', provider: 'mock' }; }

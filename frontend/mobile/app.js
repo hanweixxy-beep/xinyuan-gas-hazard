@@ -39,6 +39,8 @@ const state = {
   view: 'login',
   formStep: 'user',
   records: [],
+  recordsRequest: 0,
+  recordsVisible: 50,
   currentRecord: null,
   organizationOptions: { regions: [], stores: [], loaded: false },
   recordOrganization: { regionId: 0, regionName: '', storeId: 0, storeName: '', remembered: false },
@@ -420,16 +422,17 @@ function initOptions() {
 
 async function api(path, options = {}) {
   const headers = options.headers || {};
+  const requestToken = state.token;
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  if (state.token) {
-    headers.Authorization = `Bearer ${state.token}`;
+  if (requestToken) {
+    headers.Authorization = `Bearer ${requestToken}`;
   }
 
   const response = await fetch(`${apiBase}${path}`, { ...options, headers });
   const result = await response.json().catch(() => ({}));
-  if (response.status === 401 && state.token) {
+  if (response.status === 401 && requestToken && requestToken === state.token) {
     const message = result.message || '当前账号已在另一台手机或 H5 登录，请重新登录。';
     logout(false);
     showToast(message);
@@ -696,11 +699,43 @@ function showInspectionForm() {
 function mobileRecordFilters() {
   const form = new FormData($('#mobileRecordFilters'));
   return {
-    keyword: form.get('keyword') || '',
+    keyword: String(form.get('keyword') || '').trim().toLowerCase(),
     status: form.get('status') || '',
-    dateFrom: form.get('dateFrom') || '',
-    dateTo: form.get('dateTo') || ''
+    deliveryPerson: String(form.get('recordDeliveryPerson') || '').trim().toLowerCase(),
+    inspectorName: String(form.get('recordInspectorName') || '').trim().toLowerCase(),
+    regionId: form.get('recordRegionId') || '',
+    storeId: form.get('recordStoreId') || ''
   };
+}
+
+function fillMobileRecordOrganizationFilter(name, records, keepSelection = true) {
+  const select = $('#mobileRecordFilters').elements.namedItem(name);
+  const previous = keepSelection && select.value ? select.selectedOptions[0] : null;
+  const isRegion = name === 'recordRegionId';
+  const options = new Map();
+  for (const record of records) {
+    const id = Number(isRegion ? record.region_id : record.store_id);
+    const label = isRegion ? record.region_name : record.store_name;
+    if (!Number.isSafeInteger(id) || id <= 0 || !label || options.has(String(id))) continue;
+    const company = state.user?.role === 'hq_admin' ? record.company_name : '';
+    const parts = isRegion ? [company, label] : [label, record.region_name, company];
+    options.set(String(id), parts.filter(Boolean).join(' / '));
+  }
+  if (previous && !options.has(previous.value)) options.set(previous.value, previous.text);
+  select.replaceChildren(
+    new Option(isRegion ? '全部片区' : '全部门店', ''),
+    ...[...options].sort((a, b) => a[1].localeCompare(b[1], 'zh-CN')).map(([id, label]) => new Option(label, id))
+  );
+  if (previous) select.value = previous.value;
+}
+
+function updateMobileRecordOrganizationFilters(resetStore = false) {
+  fillMobileRecordOrganizationFilter('recordRegionId', state.records);
+  const regionId = mobileRecordFilters().regionId;
+  const stores = regionId
+    ? state.records.filter((record) => String(record.region_id) === regionId)
+    : state.records;
+  fillMobileRecordOrganizationFilter('recordStoreId', stores, !resetStore);
 }
 
 function setCloudStatus(connected, text) {
@@ -708,11 +743,10 @@ function setCloudStatus(connected, text) {
   $('#cloudStatusText').textContent = text;
 }
 
-function renderHomeRecords(records) {
-  const todayKey = today();
-  $('#homeTodayCount').textContent = records.filter((record) => record.inspection_date === todayKey).length;
-  $('#homePendingCount').textContent = records.filter((record) => record.status === 'pending').length;
-  $('#homeRecordCount').textContent = records.length;
+function renderHomeRecords(records, summary, todayTotal) {
+  $('#homeTodayCount').textContent = todayTotal;
+  $('#homePendingCount').textContent = summary.pending;
+  $('#homeRecordCount').textContent = summary.total;
 
   const recent = records.slice(0, 3);
   $('#homeRecentList').innerHTML = recent.map((record) => `
@@ -728,11 +762,16 @@ function renderHomeRecords(records) {
 }
 
 async function loadHomeRecords(button = null) {
+  const sessionToken = state.token;
   await runWithButton(button, '刷新中...', async () => {
     setCloudStatus(true, '正在同步云端数据');
-    const data = await api('/records');
-    state.records = data.records || [];
-    renderHomeRecords(state.records);
+    const todayKey = today();
+    const [overview, todayRecords] = await Promise.all([
+      api('/records?page=1&pageSize=3'),
+      api(`/records?page=1&pageSize=1&dateFrom=${todayKey}&dateTo=${todayKey}`)
+    ]);
+    if (sessionToken !== state.token) return;
+    renderHomeRecords(overview.records, overview.summary, todayRecords.pagination.total);
     setCloudStatus(true, '云端连接正常 · 数据已同步');
   });
 }
@@ -742,31 +781,67 @@ async function showRecordsPanel() {
   await loadMobileRecords();
 }
 
-async function loadMobileRecords(button = null, busyText = '刷新中...') {
-  await runWithButton(button, busyText, async () => {
-    const data = await api('/records');
-    state.records = data.records || [];
-    const filters = mobileRecordFilters();
-    const keyword = String(filters.keyword || '').trim().toLowerCase();
-    const filtered = state.records.filter((record) => {
-      const matchesKeyword = !keyword || [
-        record.customer_name,
-        record.customer_phone,
-        record.customer_address,
-        record.inspector_name
-      ].some((value) => String(value || '').toLowerCase().includes(keyword));
-      const matchesStatus = filters.status === 'pending'
-        ? record.status === 'pending'
-        : filters.status === 'done'
-          ? record.status !== 'pending'
-          : true;
-      return matchesKeyword && matchesStatus;
-    });
+async function loadMobileRecords(button = null) {
+  const sessionToken = state.token;
+  const request = ++state.recordsRequest;
+  await runWithButton(button, '刷新中...', async () => {
+    const records = [];
+    const ids = new Set();
+    const pageSize = 100;
+    let total = 0;
+    for (let page = 1; ; page++) {
+      const data = await api(`/records?page=${page}&pageSize=${pageSize}`);
+      if (sessionToken !== state.token || request !== state.recordsRequest) return;
+      const pagination = data.pagination;
+      if (page === 1) total = pagination?.total;
+      const pageCount = Math.max(1, Math.ceil(total / pageSize));
+      if (!Number.isSafeInteger(total) || total < 0 || pagination?.page !== page
+          || pagination.total !== total || pagination.pageCount !== pageCount
+          || !Array.isArray(data.records)
+          || data.records.length !== Math.min(pageSize, total - records.length)) {
+        throw new Error('记录加载不完整，请刷新后重试。');
+      }
+      for (const record of data.records) {
+        const id = String(record.id);
+        if (record.id == null || ids.has(id)) throw new Error('记录加载不完整，请刷新后重试。');
+        ids.add(id);
+        records.push(record);
+      }
+      if (page === pageCount) break;
+    }
+    state.records = records;
     $('#allStatusCount').textContent = state.records.length;
     $('#pendingStatusCount').textContent = state.records.filter((record) => record.status === 'pending').length;
     $('#doneStatusCount').textContent = state.records.filter((record) => record.status !== 'pending').length;
-    renderMobileRecords(filtered);
+    updateMobileRecordOrganizationFilters();
+    renderFilteredMobileRecords(true);
   });
+}
+
+function renderFilteredMobileRecords(reset = false) {
+  if (reset) state.recordsVisible = 50;
+  const filters = mobileRecordFilters();
+  const filtered = state.records.filter((record) => {
+    const includes = (value, query) => !query || String(value ?? '').toLowerCase().includes(query);
+    const matchesKeyword = !filters.keyword || [
+      record.customer_name, record.customer_phone, record.customer_address, record.inspector_name
+    ].some((value) => includes(value, filters.keyword));
+    const matchesStatus = filters.status === 'pending'
+      ? record.status === 'pending'
+      : filters.status === 'done'
+        ? record.status !== 'pending'
+        : true;
+    return matchesKeyword && matchesStatus
+      && includes(record.delivery_person, filters.deliveryPerson)
+      && includes(record.inspector_name, filters.inspectorName)
+      && (!filters.regionId || String(record.region_id) === filters.regionId)
+      && (!filters.storeId || String(record.store_id) === filters.storeId);
+  });
+  const active = [filters.deliveryPerson, filters.inspectorName, filters.regionId, filters.storeId].filter(Boolean).length;
+  $('#recordFilterSummary').textContent = active ? `筛选（${active}）` : '筛选';
+  $('#recordFilterResult').textContent = `共 ${filtered.length} 条记录`;
+  $('#recordsMoreBtn').classList.toggle('hidden', filtered.length <= state.recordsVisible);
+  renderMobileRecords(filtered.slice(0, state.recordsVisible));
 }
 
 function renderMobileRecords(records) {
@@ -922,6 +997,11 @@ function logout(confirmFirst = true) {
   state.user = null;
   state.location = null;
   state.records = [];
+  state.recordsRequest++;
+  $('#mobileRecordFilters').reset();
+  $('#recordExtraFilters').open = false;
+  updateMobileRecordOrganizationFilters();
+  renderFilteredMobileRecords(true);
   state.currentRecord = null;
   state.organizationOptions = { regions: [], stores: [], loaded: false };
   state.clientUuid = '';
@@ -1633,11 +1713,25 @@ function bindEvents() {
   $('#recordsRefreshBtn').addEventListener('click', (event) => loadMobileRecords(event.currentTarget).then(() => showToast('记录已刷新')).catch((error) => showToast(error.message)));
   $('#mobileRecordFilters').addEventListener('submit', (event) => {
     event.preventDefault();
-    loadMobileRecords(event.submitter, '查询中...').then(() => showToast('查询完成')).catch((error) => showToast(error.message));
+    $('#recordExtraFilters').open = false;
+    renderFilteredMobileRecords(true);
+    window.scrollTo({ top: 0, behavior: 'instant' });
   });
   $('#mobileRecordFilters').addEventListener('change', (event) => {
-    if (!event.target.matches('[name="status"]')) return;
-    loadMobileRecords().catch((error) => showToast(error.message));
+    if (event.target.matches('[name="recordRegionId"]')) updateMobileRecordOrganizationFilters(true);
+    if (event.target.matches('[name="status"]')) renderFilteredMobileRecords(true);
+  });
+  $('#clearRecordFiltersBtn').addEventListener('click', () => {
+    const fields = $('#mobileRecordFilters').elements;
+    for (const name of ['recordDeliveryPerson', 'recordInspectorName', 'recordRegionId', 'recordStoreId']) {
+      fields.namedItem(name).value = '';
+    }
+    updateMobileRecordOrganizationFilters(true);
+    renderFilteredMobileRecords(true);
+  });
+  $('#recordsMoreBtn').addEventListener('click', () => {
+    state.recordsVisible += 50;
+    renderFilteredMobileRecords();
   });
   $('#mobileRecordList').addEventListener('click', (event) => {
     const button = event.target.closest('[data-record-id]');

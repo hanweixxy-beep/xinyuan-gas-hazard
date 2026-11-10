@@ -46,11 +46,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.CheckCircle
@@ -72,6 +75,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -96,6 +101,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -864,6 +870,8 @@ private fun CloudRecordsScreen(
     }
     var keyword by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf(initialStatus) }
+    var filters by rememberSaveable(stateSaver = recordFiltersSaver) { mutableStateOf(CloudRecordFilters()) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
     var detailRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
     var rectificationDetail by remember { mutableStateOf<CloudRecordDetail?>(null) }
     val detail by viewModel.cloudRecordDetail.collectAsState()
@@ -873,22 +881,24 @@ private fun CloudRecordsScreen(
         "company_admin" -> "显示当前账号可查看的本公司记录"
         else -> if (settings.canViewCompanyRecords) "显示当前账号可查看的本公司记录" else "仅显示我录入的数据"
     }
-    val filtered = records.filter { record ->
-        val matchesKeyword = keyword.isBlank() ||
-            record.customerName.contains(keyword, true) ||
-            record.customerPhone.contains(keyword, true) ||
-            record.customerAddress.contains(keyword, true)
-        val matchesStatus = when (status) {
-            "pending" -> record.status == "pending"
-            "done" -> record.status != "pending"
-            else -> true
+    val filtered = remember(records, keyword, status, filters) {
+        records.filter { record ->
+            val matchesKeyword = keyword.isBlank() ||
+                record.customerName.contains(keyword, true) ||
+                record.customerPhone.contains(keyword, true) ||
+                record.customerAddress.contains(keyword, true)
+            val matchesStatus = when (status) {
+                "pending" -> record.status == "pending"
+                "done" -> record.status != "pending"
+                else -> true
+            }
+            matchesKeyword && matchesStatus && filters.matches(record)
         }
-        matchesKeyword && matchesStatus
     }
 
     LaunchedEffect(Unit) { viewModel.refreshCloudRecords() }
     LaunchedEffect(initialStatus) { status = initialStatus }
-    LaunchedEffect(keyword, status) { recordsListState.scrollToItem(0) }
+    LaunchedEffect(keyword, status, filters) { recordsListState.scrollToItem(0) }
     LaunchedEffect(Unit) {
         viewModel.cloudRectificationResult.collectLatest { result ->
             result.fold(
@@ -952,6 +962,22 @@ private fun CloudRecordsScreen(
                 StatusFilter("已完成 ${records.count { it.status != "pending" }}", status == "done") { status = "done" }
             }
         }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "共 ${filtered.size} 条记录",
+                    color = InkSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = { showFilters = true }) {
+                    Text(if (filters.activeCount == 0) "筛选" else "筛选（${filters.activeCount}）")
+                }
+            }
+        }
         if (loading && records.isEmpty()) {
             item {
                 Box(modifier = Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
@@ -1001,6 +1027,19 @@ private fun CloudRecordsScreen(
     }
     }
 
+    if (showFilters) {
+        CloudRecordFilterDialog(
+            records = records,
+            appliedFilters = filters,
+            showCompany = settings.role == "hq_admin",
+            onDismiss = { showFilters = false },
+            onApply = {
+                filters = it
+                showFilters = false
+            }
+        )
+    }
+
     AnimatedVisibility(
         visible = detailRecordId != null,
         modifier = Modifier.fillMaxSize(),
@@ -1041,6 +1080,106 @@ private fun CloudRecordsScreen(
                 },
                 onSubmit = viewModel::rectifyCloudRecord
             )
+        }
+    }
+}
+
+private val recordFiltersSaver = listSaver<CloudRecordFilters, Any>(
+    save = { listOf(it.deliveryPerson, it.inspectorName, it.regionId, it.storeId) },
+    restore = { CloudRecordFilters(it[0] as String, it[1] as String, it[2] as Long, it[3] as Long) }
+)
+
+@Composable
+private fun CloudRecordFilterDialog(
+    records: List<CloudRecordSummary>,
+    appliedFilters: CloudRecordFilters,
+    showCompany: Boolean,
+    onDismiss: () -> Unit,
+    onApply: (CloudRecordFilters) -> Unit
+) {
+    var draft by rememberSaveable(stateSaver = recordFiltersSaver) { mutableStateOf(appliedFilters) }
+    val regions = remember(records, showCompany) { recordRegionOptions(records, showCompany) }
+    val stores = remember(records, draft.regionId, showCompany) {
+        recordStoreOptions(records, draft.regionId, showCompany)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("筛选记录") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = draft.deliveryPerson,
+                    onValueChange = { draft = draft.copy(deliveryPerson = it) },
+                    label = { Text("配送工") },
+                    placeholder = { Text("输入配送工姓名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = draft.inspectorName,
+                    onValueChange = { draft = draft.copy(inspectorName = it) },
+                    label = { Text("检查人") },
+                    placeholder = { Text("输入检查人姓名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                RecordOrganizationFilter("片区", draft.regionId, regions) {
+                    if (it != draft.regionId) draft = draft.copy(regionId = it, storeId = 0)
+                }
+                RecordOrganizationFilter("门店", draft.storeId, stores) { draft = draft.copy(storeId = it) }
+                TextButton(onClick = { draft = CloudRecordFilters() }, enabled = draft.activeCount > 0) {
+                    Text("重置筛选")
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            Button(onClick = {
+                onApply(draft.copy(deliveryPerson = draft.deliveryPerson.trim(), inspectorName = draft.inspectorName.trim()))
+            }) {
+                Text("应用筛选")
+            }
+        }
+    )
+}
+
+@Composable
+private fun RecordOrganizationFilter(
+    label: String,
+    selectedId: Long,
+    options: List<RecordOrganizationOption>,
+    onSelect: (Long) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = options.firstOrNull { it.id == selectedId }?.label
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                selected ?: if (selectedId == 0L) "全部$label" else "已选${label}（暂无记录）",
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
+        ) {
+            DropdownMenuItem(
+                text = { Text("全部$label") },
+                onClick = { onSelect(0); expanded = false }
+            )
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = { onSelect(option.id); expanded = false }
+                )
+            }
         }
     }
 }
