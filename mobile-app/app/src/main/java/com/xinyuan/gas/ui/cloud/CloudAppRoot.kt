@@ -23,8 +23,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -43,6 +45,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -110,6 +113,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
@@ -117,6 +122,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1104,45 +1110,104 @@ private fun CloudRecordFilterDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("筛选记录") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = draft.deliveryPerson,
-                    onValueChange = { draft = draft.copy(deliveryPerson = it) },
-                    label = { Text("配送工") },
-                    placeholder = { Text("输入配送工姓名") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = GrayBackground,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "筛选记录",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Normal
+                    ),
+                    color = InkPrimary
                 )
-                OutlinedTextField(
-                    value = draft.inspectorName,
-                    onValueChange = { draft = draft.copy(inspectorName = it) },
-                    label = { Text("检查人") },
-                    placeholder = { Text("输入检查人姓名") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                RecordOrganizationFilter("片区", draft.regionId, regions) {
-                    if (it != draft.regionId) draft = draft.copy(regionId = it, storeId = 0)
-                }
-                RecordOrganizationFilter("门店", draft.storeId, stores) { draft = draft.copy(storeId = it) }
-                TextButton(onClick = { draft = CloudRecordFilters() }, enabled = draft.activeCount > 0) {
-                    Text("重置筛选")
+                TextButton(
+                    onClick = { draft = CloudRecordFilters() },
+                    enabled = draft.activeCount > 0,
+                    colors = ButtonDefaults.textButtonColors(contentColor = InkSecondary)
+                ) {
+                    Text("重置筛选", style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                BoxWithConstraints {
+                    if (maxWidth < 220.dp || LocalDensity.current.fontScale > 1.25f) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RecordFilterNameField("配送工", draft.deliveryPerson, Modifier.fillMaxWidth()) {
+                                draft = draft.copy(deliveryPerson = it)
+                            }
+                            RecordFilterNameField("检查人", draft.inspectorName, Modifier.fillMaxWidth()) {
+                                draft = draft.copy(inspectorName = it)
+                            }
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            RecordFilterNameField("配送工", draft.deliveryPerson, Modifier.weight(1f)) {
+                                draft = draft.copy(deliveryPerson = it)
+                            }
+                            RecordFilterNameField("检查人", draft.inspectorName, Modifier.weight(1f)) {
+                                draft = draft.copy(inspectorName = it)
+                            }
+                        }
+                    }
+                }
+                Column(Modifier.border(1.dp, GraySeparator, RoundedCornerShape(8.dp))) {
+                    RecordOrganizationFilter("片区", draft.regionId, regions) {
+                        if (it != draft.regionId) draft = draft.copy(regionId = it, storeId = 0)
+                    }
+                    HorizontalDivider(color = GraySeparator, modifier = Modifier.padding(horizontal = 12.dp))
+                    RecordOrganizationFilter("门店", draft.storeId, stores) { draft = draft.copy(storeId = it) }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = InkSecondary)
+            ) { Text("取消", style = MaterialTheme.typography.bodyMedium) }
+        },
         confirmButton = {
-            Button(onClick = {
-                onApply(draft.copy(deliveryPerson = draft.deliveryPerson.trim(), inspectorName = draft.inspectorName.trim()))
-            }) {
-                Text("应用筛选")
+            Button(
+                onClick = {
+                    onApply(draft.copy(deliveryPerson = draft.deliveryPerson.trim(), inspectorName = draft.inspectorName.trim()))
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = InkPrimary),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    "应用筛选",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
+    )
+}
+
+@Composable
+private fun RecordFilterNameField(
+    label: String,
+    value: String,
+    modifier: Modifier,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        placeholder = { Text("姓名") },
+        modifier = modifier,
+        textStyle = MaterialTheme.typography.bodyMedium,
+        singleLine = true,
+        shape = RoundedCornerShape(8.dp),
+        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = InkSecondary, focusedLabelColor = InkSecondary)
     )
 }
 
@@ -1155,28 +1220,47 @@ private fun RecordOrganizationFilter(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = options.firstOrNull { it.id == selectedId }?.label
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+    val focusManager = LocalFocusManager.current
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clickable(role = Role.Button) {
+                    focusManager.clearFocus()
+                    expanded = true
+                }
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, color = InkSecondary, style = MaterialTheme.typography.labelMedium)
             Text(
                 selected ?: if (selectedId == 0L) "全部$label" else "已选${label}（暂无记录）",
                 modifier = Modifier.weight(1f),
+                color = InkPrimary,
+                style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = InkSecondary,
+                modifier = Modifier.size(18.dp)
+            )
         }
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.heightIn(max = 280.dp)
+            modifier = Modifier.width(maxWidth).heightIn(max = 280.dp)
         ) {
             DropdownMenuItem(
-                text = { Text("全部$label") },
+                text = { Text("全部$label", style = MaterialTheme.typography.bodyMedium) },
                 onClick = { onSelect(0); expanded = false }
             )
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = { Text(option.label, style = MaterialTheme.typography.bodyMedium) },
                     onClick = { onSelect(option.id); expanded = false }
                 )
             }
@@ -1192,7 +1276,7 @@ private fun StatusFilter(text: String, selected: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(22.dp),
         color = if (selected) BrandGreenSoft else Color.White,
-        border = BorderStroke(1.dp, if (selected) BrandGreenSoft else GraySeparator)
+        border = BorderStroke(1.dp, if (selected) BrandGreenStrong else GraySeparator)
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
             Text(
