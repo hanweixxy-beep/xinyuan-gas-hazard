@@ -36,8 +36,8 @@ android {
         applicationId = "com.xinyuan.gas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "2.3.4"
+        versionCode = 30
+        versionName = "2.3.5"
     }
 
     signingConfigs {

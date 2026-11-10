@@ -83,8 +83,8 @@ const output = process.env.EXPORT_QA_OUTPUT || path.join(root, 'work', 'export-j
       await page.locator('#sideNav [data-module="records"]').click();
       const select = page.locator('#filterHazardGroup');
       await select.locator('summary').click();
-      assert.equal(await select.locator('input[type="checkbox"]').count(), 12);
-      await select.locator('input[value="alarm_missing"]').check();
+      assert.equal(await select.locator('input[type="checkbox"]').count(), 13);
+      await select.getByRole('checkbox', { name: '灶具无熄火保护装置' }).check();
       await select.locator('input[value="hose_tee"]').check();
       await page.locator('#filterGasGroup summary').click();
       await page.locator('#filterGasOptions input[value="虚假安检"]').check();
@@ -92,10 +92,10 @@ const output = process.env.EXPORT_QA_OUTPUT || path.join(root, 'work', 'export-j
       assert.equal(await page.locator('#filterGasOptions input').count(), 6);
       await page.locator('[name="status"]').selectOption('pending');
       await page.locator('[name="dateFrom"]').fill('2026-10-01');
-      const query = page.waitForResponse((r) => r.url().includes('/api/records?') && r.url().includes('alarm_missing'));
+      const query = page.waitForResponse((r) => r.url().includes('/api/records?') && r.url().includes('stove_no_flame_failure_device'));
       await page.locator('#filtersForm button[type="submit"]').click();
       await query;
-      assert.deepEqual(queries.at(-1).hazardCodes, ['alarm_missing', 'hose_tee']);
+      assert.deepEqual(queries.at(-1).hazardCodes, ['hose_tee', 'stove_no_flame_failure_device']);
       assert.deepEqual(queries.at(-1).gasSourceIssues, ['钢瓶无二维码', '虚假安检']);
       assert.equal(queries.at(-1).status, 'pending');
       assert.equal(queries.at(-1).dateFrom, '2026-10-01');
@@ -151,7 +151,7 @@ const output = process.env.EXPORT_QA_OUTPUT || path.join(root, 'work', 'export-j
       await page.locator('#exportJobsList').getByText('导出任务 #1 · 生成失败', { exact: true }).waitFor();
       assert.match(await page.locator('#exportJobsList').textContent(), /避免遗漏/);
       await page.locator('#sideNav [data-module="records"]').click();
-      const reset = page.waitForResponse((r) => r.url().includes('/api/records') && !r.url().includes('alarm_missing'));
+      const reset = page.waitForResponse((r) => r.url().includes('/api/records') && !r.url().includes('stove_no_flame_failure_device'));
       await page.locator('#resetFiltersBtn').click();
       await reset;
       assert.equal(await page.locator('#filtersForm input[type="checkbox"]:checked').count(), 0);

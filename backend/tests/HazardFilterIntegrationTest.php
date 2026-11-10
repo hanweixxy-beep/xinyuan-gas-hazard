@@ -112,4 +112,24 @@ try {
 } finally {
     @unlink($temp);
 }
+$stoveCode = 'stove_no_flame_failure_device';
+$regionId = $admin->createRegion($hq, ['companyId' => $companyA, 'name' => '灶具测试片区']);
+$storeId = $admin->createStore($hq, ['regionId' => $regionId, 'name' => '灶具测试门店', 'address' => '测试地址']);
+$stoveRecordId = $service->submitDraft($userA, [
+    'clientUuid' => 'stove-hazard-test', 'regionId' => $regionId, 'storeId' => $storeId,
+    'customerName' => '灶具测试用户', 'customerPhone' => '19900002000', 'customerType' => '餐饮用户',
+    'customerAddress' => '测试地址', 'inspectorName' => '测试检查人', 'deliveryPerson' => '测试配送员',
+    'inspectionDate' => '2026-11-08', 'checkResult' => '隐患未清零',
+    'hazardItems' => [$stoveCode],
+    'photos' => ['storefront' => ['/uploads/stove-store.jpg'], 'hazard' => [$stoveCode => ['/uploads/stove-hazard.jpg']]],
+]);
+$stoveRecord = $service->show($stoveRecordId, $userA);
+$check($stoveRecord['status'] === 'pending', 'Submitted stove hazard remains pending');
+$check($stoveRecord['hazards'][0]['hazard_code'] === $stoveCode
+    && $stoveRecord['hazards'][0]['hazard_category'] === '灶具'
+    && $stoveRecord['hazards'][0]['hazard_name'] === '灶具无熄火保护装置', 'Stove hazard saves the correct code, category and label');
+$check(count(array_filter($stoveRecord['photos'], static fn (array $photo): bool =>
+    $photo['photo_type'] === 'hazard' && $photo['hazard_code'] === $stoveCode)) === 1, 'Stove hazard photo linked to the selected item');
+$expectIds($service->list($userA, ['hazardCodes' => [$stoveCode]]), [$stoveRecordId], 'Stove hazard filter');
+$expectIds($service->export($userA, ['hazardCodes' => [$stoveCode]]), [$stoveRecordId], 'Stove hazard export filter');
 echo "Hazard filter: {$assertions} integration assertions passed.\n";

@@ -39,7 +39,9 @@ const output = process.env.FIELD_QA_OUTPUT || path.join(root, 'work/field-photo-
       page.on('pageerror', (error) => errors.push(error.message));
       const record = { id: 1, customer_name: '测试用户', customer_phone: '19900000000', customer_type: '餐饮用户',
         customer_address: '测试地址', inspector_name: '测试检查员', status: 'pending', check_result: '隐患未清零',
-        inspection_date: '2026-10-20', hazards: [], gasSourceIssues: [{ issue_text: '虚假安检' }], photos: [] };
+        inspection_date: '2026-10-20',
+        hazards: [{ hazard_code: 'stove_no_flame_failure_device', hazard_category: '灶具', hazard_name: '灶具无熄火保护装置' }],
+        gasSourceIssues: [{ issue_text: '虚假安检' }], photos: [] };
       await page.route('**/api/**', async (route) => {
         const endpoint = new URL(route.request().url()).pathname.replace('/api', '');
         let data;
@@ -92,9 +94,11 @@ const output = process.env.FIELD_QA_OUTPUT || path.join(root, 'work/field-photo-
       }, source);
       fs.writeFileSync(path.join(output, `delivery-only-watermark-${width}.jpg`), Buffer.from(watermarked, 'base64'));
       await page.locator('[name="checkResult"][value="隐患未清零"]').locator('..').click();
-      await page.locator('[name="hazardItems"][value="alarm_missing"]').locator('..').click();
-      await page.locator('input[name="hazardPhoto_alarm_missing"]').setInputFiles(photo);
-      await page.locator('[data-photo-field="hazardPhoto_alarm_missing"] img').waitFor();
+      const stove = page.locator('.hazard-category').filter({ has: page.getByRole('heading', { name: '灶具', exact: true }) });
+      await stove.getByText('灶具无熄火保护装置', { exact: true }).click();
+      assert(await stove.getByRole('checkbox', { name: '灶具无熄火保护装置' }).isChecked());
+      await stove.locator('input[name="hazardPhoto_stove_no_flame_failure_device"]').setInputFiles(photo);
+      await page.locator('[data-photo-field="hazardPhoto_stove_no_flame_failure_device"] img').waitFor();
       await page.locator('input[name="cylinder"]').setInputFiles(photo);
       await page.locator('[data-photo-field="cylinder"] img').waitFor();
       assert.equal(geocodes, 1, 'Other photos reuse storefront location');
@@ -119,9 +123,12 @@ const output = process.env.FIELD_QA_OUTPUT || path.join(root, 'work/field-photo-
       await page.locator('#inspectionForm').dispatchEvent('submit');
       await submitted;
       assert.equal(submissions.length, 1);
+      assert.deepEqual(submissions[0].hazardItems, ['stove_no_flame_failure_device']);
+      assert.equal(submissions[0].photos.hazard.stove_no_flame_failure_device.length, 1);
       assert.deepEqual(submissions[0].gasSourceIssues, ['虚假安检']);
       await page.locator('[data-record-id="1"]').click();
       await page.locator('#mobileRectifyForm').waitFor({ state: 'visible' });
+      await page.locator('#mobileHazardDetail').getByText('灶具：灶具无熄火保护装置', { exact: true }).waitFor();
       assert.equal(await page.locator('[name="rectificationGallery"]').getAttribute('capture'), null);
       assert.equal(await page.locator('[name="rectificationPhotos"]').getAttribute('capture'), 'environment');
       await page.locator('[name="rectificationPhotos"]').setInputFiles(photo);

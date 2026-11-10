@@ -1,4 +1,4 @@
-import { hazardItems } from '../../shared/catalog.js';
+import { hazardItems } from '../../shared/catalog.js?v=20261108-stove-hazard';
 
 let options;
 let visible = false;

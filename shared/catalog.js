@@ -22,6 +22,7 @@ export const hazardItems = [
   { code: 'hose_too_long', category: '软管', name: '软管长度超过2米' },
   { code: 'environment_bad', category: '用气环境', name: '在地下室、半地下室等通风不畅的场所使用瓶装液化气（重大隐患）' },
   { code: 'valve_adjustable', category: '减压阀', name: '使用可调式减压阀' },
+  { code: 'stove_no_flame_failure_device', category: '灶具', name: '灶具无熄火保护装置' },
   { code: 'guide_wrong', category: '安全用气指南', name: '未正确填写并张贴安全用气指南' }
 ];
 

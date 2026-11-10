@@ -70,6 +70,7 @@ object TerminalHazardCatalog {
         TerminalHazardItem("hose_too_long", "软管", "软管长度超过2米"),
         TerminalHazardItem("environment_bad", "用气环境", "在地下室、半地下室等通风不畅的场所使用瓶装液化气（重大隐患）"),
         TerminalHazardItem("valve_adjustable", "减压阀", "使用可调式减压阀"),
+        TerminalHazardItem("stove_no_flame_failure_device", "灶具", "灶具无熄火保护装置"),
         TerminalHazardItem("guide_wrong", "安全用气指南", "未正确填写并张贴安全用气指南")
     )
 

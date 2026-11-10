@@ -4,7 +4,7 @@ import {
   customerTypes,
   gasSourceIssues,
   hazardItems
-} from '../../shared/catalog.js?v=20261020-field-update';
+} from '../../shared/catalog.js?v=20261108-stove-hazard';
 
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_h5_token';
@@ -377,6 +377,7 @@ function categoryIcon(category) {
     软管: '管',
     用气环境: '境',
     减压阀: '阀',
+    灶具: '灶',
     安全用气指南: '安'
   };
   return icons[category] || '隐';

@@ -1,6 +1,6 @@
 import { downloadUserTemplate, downloadUsers, readUserFile } from './userWorkbook.js?v=20261106-company-rectification';
-import { hazardItems, gasSourceIssues } from '../../shared/catalog.js?v=20261020-field-update';
-import { configureExportJobs, createExportJob, refreshExportJobs, setExportVisible } from './exportJobs.js?v=20261026-single-link';
+import { hazardItems, gasSourceIssues } from '../../shared/catalog.js?v=20261108-stove-hazard';
+import { configureExportJobs, createExportJob, refreshExportJobs, setExportVisible } from './exportJobs.js?v=20261108-stove-hazard';
 
 const apiBase = localStorage.getItem('apiBase') || '/api';
 const tokenKey = 'xinyuan_admin_token';
