@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#faf9f5">
   <title>淮北鑫远燃气隐患排查</title>
-  <link rel="stylesheet" href="./styles.css?v=20261110-record-filters">
+  <link rel="stylesheet" href="./styles.css?v=20261111-own-records">
 </head>
 <body>
   <main class="mobile-app">
@@ -83,7 +83,7 @@
     <section id="recordsPanel" class="app-view hidden">
       <header class="view-header">
         <div>
-          <p class="date-line">仅显示我录入的数据</p>
+          <p class="date-line" id="recordsScope">查看有权限的检查记录</p>
           <h1>我的记录</h1>
         </div>
         <button id="recordsRefreshBtn" class="icon-button" type="button" title="刷新记录" aria-label="刷新记录">↻</button>
@@ -101,6 +101,10 @@
         </div>
         <details class="record-extra-filters" id="recordExtraFilters">
           <summary id="recordFilterSummary">筛选</summary>
+          <label class="record-own-filter">
+            <input name="recordOwnOnly" type="checkbox">
+            <span>仅看本账号录入</span>
+          </label>
           <div class="record-filter-fields">
             <label>配送工<input name="recordDeliveryPerson" placeholder="输入姓名"></label>
             <label>检查人<input name="recordInspectorName" placeholder="输入姓名"></label>
@@ -339,6 +343,6 @@
 
     <p id="toast" class="toast hidden"></p>
   </main>
-  <script type="module" src="./app.js?v=20261110-record-filters"></script>
+  <script type="module" src="./app.js?v=20261111-own-records"></script>
 </body>
 </html>

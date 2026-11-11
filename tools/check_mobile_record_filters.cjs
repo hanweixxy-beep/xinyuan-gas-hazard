@@ -7,18 +7,18 @@ const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '..');
 const output = process.env.RECORD_FILTER_QA_OUTPUT || path.join(root, 'work', 'mobile-record-filter-qa');
 const target = {
-  id: 1001, customer_name: '目标用户', customer_phone: '', customer_address: '测试地址',
+  id: 1001, creator_id: 1, customer_name: '目标用户', customer_phone: '', customer_address: '测试地址',
   status: 'pending', inspection_date: '2026-11-10', delivery_person: '王配送工',
   inspector_name: '李检查人、另一检查人', company_name: '甲公司', region_id: 11,
   region_name: '东片区', store_id: 101, store_name: '同名门店'
 };
 const records = [
   ...Array.from({ length: 1000 }, (_, index) => ({
-    id: index + 1, customer_name: `普通测试记录 ${index + 1}`, status: 'pending'
+    id: index + 1, creator_id: 2, customer_name: `普通测试记录 ${index + 1}`, status: 'pending'
   })),
   target,
-  { ...target, id: 1002, company_name: '乙公司', region_id: 22, store_id: 202 },
-  { ...target, id: 1003, inspector_name: '其他检查人', creator_name: '李检查人' },
+  { ...target, id: 1002, creator_id: 2, company_name: '乙公司', region_id: 22, store_id: 202 },
+  { ...target, id: 1003, creator_id: 2, inspector_name: '其他检查人', creator_name: '李检查人' },
   { ...target, id: 1004, status: 'rectified' },
   { ...target, id: 1005, customer_name: '历史记录', region_id: null, region_name: null, store_id: null, store_name: null }
 ];
@@ -113,10 +113,35 @@ const records = [
       await form.getByRole('button', { name: '查询' }).click();
       assert.deepEqual(await cards.evaluateAll((items) => items.map((item) => item.dataset.recordId)), ['1005']);
       assert.equal(requestedPages.length, 13);
+
+      await form.locator('[name="keyword"]').fill('');
+      await form.getByText(/全部 1005/).click();
+      await page.locator('#recordFilterSummary').click();
+      const ownOnly = form.getByRole('checkbox', { name: '仅看本账号录入' });
+      await ownOnly.check();
+      await form.getByRole('button', { name: '查询' }).click();
+      assert.deepEqual(await cards.evaluateAll((items) => items.map((item) => item.dataset.recordId)), ['1001', '1004', '1005']);
+      assert.equal(await page.locator('#recordsScope').textContent(), '仅显示本账号录入的记录');
+      assert.equal(await page.locator('#allStatusCount').textContent(), '3');
+      assert.equal(await page.locator('#pendingStatusCount').textContent(), '2');
+      assert.equal(await page.locator('#doneStatusCount').textContent(), '1');
+      assert.equal(await page.locator('#recordFilterSummary').textContent(), '筛选（1）');
+      await page.locator('#recordFilterSummary').click();
+      await form.getByLabel('检查人', { exact: true }).fill('李');
+      await form.locator('[name="keyword"]').fill('目标');
+      await form.getByText(/待整改/).click();
+      await form.getByRole('button', { name: '查询' }).click();
+      assert.deepEqual(await cards.evaluateAll((items) => items.map((item) => item.dataset.recordId)), ['1001']);
+      await page.locator('#recordFilterSummary').click();
+      await form.getByRole('button', { name: '重置筛选' }).click();
+      assert.equal(await ownOnly.isChecked(), false);
+      assert.equal(await page.locator('#allStatusCount').textContent(), '1005');
+      assert.deepEqual(await cards.evaluateAll((items) => items.map((item) => item.dataset.recordId)), ['1001', '1002', '1003']);
+      assert.equal(await page.locator('#recordsScope').textContent(), '显示当前账号可查看的全部公司记录');
       assert.deepEqual(errors, []);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await context.close();
-      console.log(`H5 ${width}px: all 1005 records, combined filters, dependent organization selectors, same names, history, reset and unstable page protection passed.`);
+      console.log(`H5 ${width}px: pagination, own account, status totals, combined filters, organization selectors, history and reset passed.`);
     }
   } finally {
     if (browser) await browser.close();

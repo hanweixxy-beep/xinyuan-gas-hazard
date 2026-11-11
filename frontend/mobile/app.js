@@ -704,7 +704,8 @@ function mobileRecordFilters() {
     deliveryPerson: String(form.get('recordDeliveryPerson') || '').trim().toLowerCase(),
     inspectorName: String(form.get('recordInspectorName') || '').trim().toLowerCase(),
     regionId: form.get('recordRegionId') || '',
-    storeId: form.get('recordStoreId') || ''
+    storeId: form.get('recordStoreId') || '',
+    ownOnly: form.has('recordOwnOnly')
   };
 }
 
@@ -810,9 +811,6 @@ async function loadMobileRecords(button = null) {
       if (page === pageCount) break;
     }
     state.records = records;
-    $('#allStatusCount').textContent = state.records.length;
-    $('#pendingStatusCount').textContent = state.records.filter((record) => record.status === 'pending').length;
-    $('#doneStatusCount').textContent = state.records.filter((record) => record.status !== 'pending').length;
     updateMobileRecordOrganizationFilters();
     renderFilteredMobileRecords(true);
   });
@@ -821,7 +819,21 @@ async function loadMobileRecords(button = null) {
 function renderFilteredMobileRecords(reset = false) {
   if (reset) state.recordsVisible = 50;
   const filters = mobileRecordFilters();
-  const filtered = state.records.filter((record) => {
+  const accountId = Number(state.user?.id);
+  const accountRecords = filters.ownOnly
+    ? state.records.filter((record) => Number.isSafeInteger(accountId) && accountId > 0 && Number(record.creator_id) === accountId)
+    : state.records;
+  const pending = accountRecords.filter((record) => record.status === 'pending').length;
+  $('#allStatusCount').textContent = accountRecords.length;
+  $('#pendingStatusCount').textContent = pending;
+  $('#doneStatusCount').textContent = accountRecords.length - pending;
+  let scope = '仅显示本账号录入的记录';
+  if (!filters.ownOnly) {
+    if (state.user?.role === 'hq_admin') scope = '显示当前账号可查看的全部公司记录';
+    else if (state.user?.role === 'company_admin' || state.user?.canViewCompanyRecords) scope = '显示当前账号可查看的本公司记录';
+  }
+  $('#recordsScope').textContent = scope;
+  const filtered = accountRecords.filter((record) => {
     const includes = (value, query) => !query || String(value ?? '').toLowerCase().includes(query);
     const matchesKeyword = !filters.keyword || [
       record.customer_name, record.customer_phone, record.customer_address, record.inspector_name
@@ -837,7 +849,8 @@ function renderFilteredMobileRecords(reset = false) {
       && (!filters.regionId || String(record.region_id) === filters.regionId)
       && (!filters.storeId || String(record.store_id) === filters.storeId);
   });
-  const active = [filters.deliveryPerson, filters.inspectorName, filters.regionId, filters.storeId].filter(Boolean).length;
+  const active = [filters.deliveryPerson, filters.inspectorName, filters.regionId, filters.storeId, filters.ownOnly]
+    .filter(Boolean).length;
   $('#recordFilterSummary').textContent = active ? `筛选（${active}）` : '筛选';
   $('#recordFilterResult').textContent = `共 ${filtered.length} 条记录`;
   $('#recordsMoreBtn').classList.toggle('hidden', filtered.length <= state.recordsVisible);
@@ -1723,6 +1736,7 @@ function bindEvents() {
   });
   $('#clearRecordFiltersBtn').addEventListener('click', () => {
     const fields = $('#mobileRecordFilters').elements;
+    fields.namedItem('recordOwnOnly').checked = false;
     for (const name of ['recordDeliveryPerson', 'recordInspectorName', 'recordRegionId', 'recordStoreId']) {
       fields.namedItem(name).value = '';
     }

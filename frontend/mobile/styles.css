@@ -594,6 +594,24 @@ input[readonly] {
   font-weight: 700;
 }
 
+.record-own-filter {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.record-own-filter input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--brand-strong);
+}
+
 .record-filter-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
