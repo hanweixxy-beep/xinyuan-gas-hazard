@@ -40,6 +40,19 @@ class CloudRecordFiltersTest {
         assertFalse(CloudRecordFilters(storeId = 12).matches(legacy))
     }
 
+    @Test fun ownRecordsUseTheCreatorAccountEvenWhenInspectorNamesAreIdentical() {
+        val own = record.copy(creatorId = 9)
+        val coworker = record.copy(id = 1002, creatorId = 10)
+        val missingCreator = record.copy(id = 1003)
+        val records = listOf(own, coworker, missingCreator)
+        val filters = CloudRecordFilters(ownRecordsOnly = true, regionId = 7)
+
+        assertEquals(2, filters.activeCount)
+        assertEquals(listOf(own), filters.recordsInAccountScope(records, accountId = 9).filter(filters::matches))
+        assertEquals(emptyList<CloudRecordSummary>(), filters.recordsInAccountScope(records, accountId = 0))
+        assertEquals(records, CloudRecordFilters().recordsInAccountScope(records, accountId = 9))
+    }
+
     @Test fun organizationOptionsAreDeduplicatedAndKeepSameNamedCompaniesSeparate() {
         val records = listOf(record, record.copy(id = 1002), record.copy(
             id = 1003, companyName = "乙公司", regionId = 8, storeId = 13

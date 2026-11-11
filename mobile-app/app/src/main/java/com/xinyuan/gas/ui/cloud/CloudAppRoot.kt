@@ -50,6 +50,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -93,6 +94,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -882,13 +884,18 @@ private fun CloudRecordsScreen(
     var rectificationDetail by remember { mutableStateOf<CloudRecordDetail?>(null) }
     val detail by viewModel.cloudRecordDetail.collectAsState()
     val detailLoading by viewModel.cloudRecordDetailLoading.collectAsState()
-    val scopeDescription = when (settings.role) {
-        "hq_admin" -> "显示当前账号可查看的全部公司记录"
-        "company_admin" -> "显示当前账号可查看的本公司记录"
+    val scopeDescription = when {
+        filters.ownRecordsOnly -> "仅显示本账号录入的记录"
+        settings.role == "hq_admin" -> "显示当前账号可查看的全部公司记录"
+        settings.role == "company_admin" -> "显示当前账号可查看的本公司记录"
         else -> if (settings.canViewCompanyRecords) "显示当前账号可查看的本公司记录" else "仅显示我录入的数据"
     }
-    val filtered = remember(records, keyword, status, filters) {
-        records.filter { record ->
+    val accountRecords = remember(records, filters.ownRecordsOnly, settings.userId) {
+        filters.recordsInAccountScope(records, settings.userId)
+    }
+    val pendingCount = remember(accountRecords) { accountRecords.count { it.status == "pending" } }
+    val filtered = remember(accountRecords, keyword, status, filters) {
+        accountRecords.filter { record ->
             val matchesKeyword = keyword.isBlank() ||
                 record.customerName.contains(keyword, true) ||
                 record.customerPhone.contains(keyword, true) ||
@@ -963,9 +970,9 @@ private fun CloudRecordsScreen(
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusFilter("全部 ${records.size}", status.isBlank()) { status = "" }
-                StatusFilter("待整改 ${records.count { it.status == "pending" }}", status == "pending") { status = "pending" }
-                StatusFilter("已完成 ${records.count { it.status != "pending" }}", status == "done") { status = "done" }
+                StatusFilter("全部 ${accountRecords.size}", status.isBlank()) { status = "" }
+                StatusFilter("待整改 $pendingCount", status == "pending") { status = "pending" }
+                StatusFilter("已完成 ${accountRecords.size - pendingCount}", status == "done") { status = "done" }
             }
         }
         item {
@@ -1091,8 +1098,16 @@ private fun CloudRecordsScreen(
 }
 
 private val recordFiltersSaver = listSaver<CloudRecordFilters, Any>(
-    save = { listOf(it.deliveryPerson, it.inspectorName, it.regionId, it.storeId) },
-    restore = { CloudRecordFilters(it[0] as String, it[1] as String, it[2] as Long, it[3] as Long) }
+    save = { listOf(it.deliveryPerson, it.inspectorName, it.regionId, it.storeId, it.ownRecordsOnly) },
+    restore = {
+        CloudRecordFilters(
+            deliveryPerson = it[0] as String,
+            inspectorName = it[1] as String,
+            regionId = it[2] as Long,
+            storeId = it[3] as Long,
+            ownRecordsOnly = it.getOrNull(4) as? Boolean ?: false
+        )
+    }
 )
 
 @Composable
@@ -1137,6 +1152,26 @@ private fun CloudRecordFilterDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .toggleable(
+                            value = draft.ownRecordsOnly,
+                            role = Role.Switch,
+                            onValueChange = { draft = draft.copy(ownRecordsOnly = it) }
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "仅看本账号录入",
+                        modifier = Modifier.weight(1f),
+                        color = InkPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(checked = draft.ownRecordsOnly, onCheckedChange = null)
+                }
                 BoxWithConstraints {
                     if (maxWidth < 220.dp || LocalDensity.current.fontScale > 1.25f) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

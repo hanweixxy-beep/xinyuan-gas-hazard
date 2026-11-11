@@ -6,10 +6,15 @@ internal data class CloudRecordFilters(
     val deliveryPerson: String = "",
     val inspectorName: String = "",
     val regionId: Long = 0,
-    val storeId: Long = 0
+    val storeId: Long = 0,
+    val ownRecordsOnly: Boolean = false
 ) {
     val activeCount: Int
-        get() = listOf(deliveryPerson.isNotBlank(), inspectorName.isNotBlank(), regionId > 0, storeId > 0).count { it }
+        get() = listOf(deliveryPerson.isNotBlank(), inspectorName.isNotBlank(), regionId > 0, storeId > 0, ownRecordsOnly)
+            .count { it }
+
+    fun recordsInAccountScope(records: List<CloudRecordSummary>, accountId: Long): List<CloudRecordSummary> =
+        if (ownRecordsOnly) records.filter { accountId > 0 && it.creatorId == accountId } else records
 
     fun matches(record: CloudRecordSummary): Boolean =
         record.deliveryPerson.contains(deliveryPerson.trim(), ignoreCase = true) &&

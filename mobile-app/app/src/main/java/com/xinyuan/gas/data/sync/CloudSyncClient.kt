@@ -94,7 +94,8 @@ data class CloudRecordSummary(
     val regionId: Long = 0,
     val regionName: String = "",
     val storeId: Long = 0,
-    val storeName: String = ""
+    val storeName: String = "",
+    val creatorId: Long = 0
 )
 
 data class CloudRecordHazard(
@@ -318,7 +319,8 @@ class HttpCloudSyncClient(
                             regionId = item.optLong("region_id"),
                             regionName = item.textOrBlank("region_name"),
                             storeId = item.optLong("store_id"),
-                            storeName = item.textOrBlank("store_name")
+                            storeName = item.textOrBlank("store_name"),
+                            creatorId = item.optLong("creator_id")
                         )
                     )
                 }
