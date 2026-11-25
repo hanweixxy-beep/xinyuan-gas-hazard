@@ -54,8 +54,8 @@ docs/               部署、备份、换电脑恢复说明
 准备 Git、PHP 8.3、MySQL 8、JDK 17 和 Android SDK 35。PHP 需要 PDO MySQL、mbstring、fileinfo、zip、gd，EXIF 扩展用于照片方向处理。
 
 ```sh
-git clone https://github.com/hanweixxy-beep/xinyuan-gas-hazard-APP-H5-PHP-MySQL-.git
-cd xinyuan-gas-hazard-APP-H5-PHP-MySQL-
+git clone https://github.com/hanweixxy-beep/xinyuan-gas-hazard.git
+cd xinyuan-gas-hazard
 ```
 
 1. 在本机创建空的开发数据库，例如 `xinyuan_test_dev`，将 `database/schema.sql` 导入这个空库。该文件包含重建表结构的语句，导入前核对目标数据库。

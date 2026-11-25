@@ -51,7 +51,7 @@ php backend/tests/ExportOrganizationColumnsTest.php
 
 ## Mac 接手验收记录
 
-- [ ] 私有仓库克隆成功，本机 HEAD 与 Windows 交接提交一致，工作区干净。
+- [ ] 公开仓库克隆成功，本机 HEAD 与 Windows 交接提交一致，工作区干净。
 - [ ] JDK 17、SDK 35 与 Wrapper 版本正确；debug 测试、构建与 lint 通过。
 - [ ] PHP 扩展与两项无需数据库的检查通过。
 - [ ] 本地 .env 为开发配置；测试库和目录独立，不带生产资料。
