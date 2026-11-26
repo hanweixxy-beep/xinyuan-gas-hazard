@@ -882,6 +882,7 @@ private fun CloudRecordsScreen(
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var detailRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
     var rectificationDetail by remember { mutableStateOf<CloudRecordDetail?>(null) }
+    var photoSupplementDetail by remember { mutableStateOf<CloudRecordDetail?>(null) }
     val detail by viewModel.cloudRecordDetail.collectAsState()
     val detailLoading by viewModel.cloudRecordDetailLoading.collectAsState()
     val scopeDescription = when {
@@ -1072,6 +1073,22 @@ private fun CloudRecordsScreen(
             onRectify = { record ->
                 detailRecordId = null
                 rectificationDetail = record
+            },
+            onSupplementPhoto = { record ->
+                photoSupplementDetail = record
+            }
+        )
+    }
+
+    photoSupplementDetail?.let { record ->
+        CloudRectificationPhotoSupplementDialog(
+            detail = record,
+            onDismiss = { photoSupplementDetail = null },
+            onSave = viewModel::supplementCloudRectificationPhoto,
+            onSaved = {
+                photoSupplementDetail = null
+                viewModel.loadCloudRecordDetail(record.id)
+                Toast.makeText(context, "整改照片已补录", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -1373,7 +1390,8 @@ private fun CloudRecordDetailOverlay(
     detail: CloudRecordDetail?,
     loading: Boolean,
     onDismiss: () -> Unit,
-    onRectify: (CloudRecordDetail) -> Unit
+    onRectify: (CloudRecordDetail) -> Unit,
+    onSupplementPhoto: (CloudRecordDetail) -> Unit
 ) {
     var previewPhoto by remember(detail?.id) { mutableStateOf<CloudRecordPhoto?>(null) }
     BackHandler(onBack = onDismiss)
@@ -1486,7 +1504,7 @@ private fun CloudRecordDetailOverlay(
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (detail?.status == "pending") {
+                        if (detail != null && (detail.status == "pending" || detail.canSupplementRectificationPhoto)) {
                             OutlinedButton(
                                 onClick = onDismiss,
                                 modifier = Modifier
@@ -1498,14 +1516,16 @@ private fun CloudRecordDetailOverlay(
                                 Text("关闭", color = InkSecondary)
                             }
                             Button(
-                                onClick = { onRectify(detail) },
+                                onClick = {
+                                    if (detail.status == "pending") onRectify(detail) else onSupplementPhoto(detail)
+                                },
                                 modifier = Modifier
                                     .weight(0.58f)
                                     .height(50.dp),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = BrandGreen)
                             ) {
-                                Text("开始整改")
+                                Text(if (detail.status == "pending") "开始整改" else "补录整改照片")
                             }
                         } else {
                             Button(

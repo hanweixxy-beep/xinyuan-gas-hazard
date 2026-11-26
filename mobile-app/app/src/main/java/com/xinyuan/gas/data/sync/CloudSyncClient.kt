@@ -107,7 +107,8 @@ data class CloudRecordHazard(
 data class CloudRecordPhoto(
     val url: String,
     val type: String,
-    val hazardCode: String
+    val hazardCode: String,
+    val id: Long = 0L
 )
 
 data class CloudRecordDetail(
@@ -130,7 +131,8 @@ data class CloudRecordDetail(
     val rectificationPerson: String,
     val hazards: List<CloudRecordHazard>,
     val gasSourceIssues: List<String>,
-    val photos: List<CloudRecordPhoto>
+    val photos: List<CloudRecordPhoto>,
+    val canSupplementRectificationPhoto: Boolean = false
 )
 
 class CloudApiException(
@@ -208,6 +210,13 @@ interface CloudSyncClient {
         rectificationNote: String,
         rectificationPerson: String,
         photoUris: List<String>
+    ): Result<Unit>
+    suspend fun supplementRectificationPhoto(
+        id: Long,
+        operationId: String,
+        reason: String,
+        replacePhotoId: Long?,
+        photoUri: String
     ): Result<Unit>
     suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit>
     suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult>
@@ -352,7 +361,8 @@ class HttpCloudSyncClient(
             rectificationPerson = record.textOrBlank("rectification_person"),
             hazards = recordHazards(record.optJSONArray("hazards")),
             gasSourceIssues = stringValues(record.optJSONArray("gasSourceIssues"), "issue_text"),
-            photos = recordPhotos(record.optJSONArray("photos"))
+            photos = recordPhotos(record.optJSONArray("photos")),
+            canSupplementRectificationPhoto = record.optBoolean("canSupplementRectificationPhoto")
         )
     }
 
@@ -388,6 +398,27 @@ class HttpCloudSyncClient(
                 put("newPassword", newPassword)
             }
         )
+        Unit
+    }
+
+    override suspend fun supplementRectificationPhoto(
+        id: Long,
+        operationId: String,
+        reason: String,
+        replacePhotoId: Long?,
+        photoUri: String
+    ): Result<Unit> = runCatching {
+        val uri = Uri.parse(photoUri)
+        val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "rectification.jpg"
+        val mimeType = context.contentResolver.getType(uri) ?: guessMimeType(fileName)
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: error("无法读取补录照片，请重新选择")
+        val fields = buildMap {
+            put("operationId", operationId)
+            put("reason", reason.trim())
+            replacePhotoId?.let { put("replacePhotoId", it.toString()) }
+        }
+        postPhoto("/records/$id/rectification-photo", fileName, mimeType, bytes, fields)
         Unit
     }
 
@@ -442,14 +473,28 @@ class HttpCloudSyncClient(
         }
     }
 
-    private fun uploadBytes(fileName: String, mimeType: String, bytes: ByteArray): String {
+    private fun uploadBytes(fileName: String, mimeType: String, bytes: ByteArray): String =
+        postPhoto("/files/upload", fileName, mimeType, bytes).optString("filePath")
+
+    private fun postPhoto(
+        endpoint: String,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+        fields: Map<String, String> = emptyMap()
+    ): JSONObject {
         val boundary = "----XinyuanGas${UUID.randomUUID().toString().replace("-", "")}"
-        val connection = openConnection("/files/upload", "POST").apply {
+        val connection = openConnection(endpoint, "POST").apply {
             doOutput = true
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
 
         DataOutputStream(connection.outputStream).use { output ->
+            for ((name, value) in fields) {
+                output.writeBytes("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n")
+                output.write(value.toByteArray(Charsets.UTF_8))
+                output.writeBytes("\r\n")
+            }
             output.writeBytes("--$boundary\r\n")
             output.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"${safeFileName(fileName)}\"\r\n")
             output.writeBytes("Content-Type: $mimeType\r\n")
@@ -458,7 +503,7 @@ class HttpCloudSyncClient(
             output.writeBytes("\r\n--$boundary--\r\n")
         }
 
-        return readData(connection).optString("filePath")
+        return readData(connection)
     }
 
     private fun buildTerminalPayload(record: TerminalHazardRecord, photos: RemoteTerminalPhotos): JSONObject =
@@ -576,7 +621,8 @@ class HttpCloudSyncClient(
                     CloudRecordPhoto(
                         url = mediaUrl(path),
                         type = item.optString("photo_type"),
-                        hazardCode = item.optString("hazard_code")
+                        hazardCode = item.optString("hazard_code"),
+                        id = item.optLong("id")
                     )
                 )
             }
@@ -733,6 +779,14 @@ class NotConfiguredCloudSyncClient : CloudSyncClient {
     ): Result<Unit> = notConfigured()
 
     override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = notConfigured()
+
+    override suspend fun supplementRectificationPhoto(
+        id: Long,
+        operationId: String,
+        reason: String,
+        replacePhotoId: Long?,
+        photoUri: String
+    ): Result<Unit> = notConfigured()
 
     override suspend fun uploadPhoto(localFile: File, ownerUuid: String): Result<CloudSyncResult> = notConfigured()
 }

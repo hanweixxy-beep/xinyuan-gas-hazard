@@ -12,6 +12,7 @@ use App\Repositories\RecordRepository;
 use App\Repositories\UserRepository;
 use App\Services\AdminService;
 use App\Services\AuthService;
+use App\Services\FileStorageService;
 use App\Services\RecordService;
 
 require dirname(__DIR__) . '/app/Core/Autoloader.php';
@@ -35,7 +36,7 @@ $company = $companies->create('协同整改测试公司', 'RECTIFY_QA');
 $hq = ['id' => 0, 'role' => 'hq_admin', 'company_id' => $company];
 $makeUser = function (string $name, string $phone, string $role, bool $companyView, ?int $companyId = null) use ($admin, $users, $hq, $company): array {
     $id = $admin->createUser($hq, ['companyId' => $companyId ?? $company, 'name' => $name, 'phone' => $phone,
-        'password' => 'Isolated-Rectification-123', 'role' => $role, 'loginScope' => 'both',
+        'password' => bin2hex(random_bytes(24)), 'role' => $role, 'loginScope' => 'both',
         'canViewCompanyRecords' => $companyView]);
     return $users->findById($id);
 };
@@ -139,4 +140,76 @@ $check($unchanged['status'] === 'pending' && empty($unchanged['rectification_per
 $check($unchanged['photos'] === [], 'Photo failure must not leave partial evidence');
 $service->rectify($rollback, $coworker, $payload);
 $check($records->findForUser($rollback, $coworker)['status'] === 'rectified', 'Retry must work after a rolled-back failure');
+
+$photoPatch = static fn (array $changes = []): array => $changes + [
+    'operationId' => sprintf('%s-%s-%s-%s-%s', bin2hex(random_bytes(4)), bin2hex(random_bytes(2)),
+        bin2hex(random_bytes(2)), bin2hex(random_bytes(2)), bin2hex(random_bytes(6))),
+    'reason' => '补充整改后的照片',
+];
+$uploadCount = 0;
+$upload = static function () use (&$uploadCount): array {
+    return ['filePath' => '/uploads/qa-supplement-' . ++$uploadCount . '.jpg', 'mimeType' => 'image/jpeg', 'fileSize' => 123];
+};
+$originalPhotoId = (int) $fixed['photos'][0]['id'];
+$append = $photoPatch();
+$service->supplementRectificationPhoto($id, $creator, $append, $upload);
+$service->supplementRectificationPhoto($id, $creator, $append, $upload);
+$afterAppend = $service->show($id, $creator);
+$check(count($afterAppend['photos']) === 2 && $uploadCount === 1, 'An append and retry must store one new photo');
+$check((int) $afterAppend['photos'][0]['id'] === $originalPhotoId, 'Append must retain the original photo');
+$replace = $photoPatch(['replacePhotoId' => $originalPhotoId, 'reason' => '前一张上传错误']);
+$service->supplementRectificationPhoto($id, $creator, $replace, $upload);
+$service->supplementRectificationPhoto($id, $creator, $replace, $upload);
+$afterReplace = $service->show($id, $creator);
+$check(count($afterReplace['photos']) === 2 && $uploadCount === 2, 'Replacing and retrying must not duplicate evidence');
+$check(!in_array($fixed['photos'][0]['file_path'], array_column($afterReplace['photos'], 'file_path'), true), 'The wrong photo must leave the current record');
+foreach (['status', 'check_result', 'rectification_person', 'rectification_date', 'rectification_note', 'updated_at'] as $key) {
+    $check($afterReplace[$key] === $fixed[$key], 'Photo corrections must preserve the original closure');
+}
+$audit = $pdo->prepare("SELECT actor_id, context_json FROM audit_logs WHERE action = 'rectification_photo_supplement' AND target_id = ? ORDER BY id");
+$audit->execute([$id]);
+$entries = $audit->fetchAll();
+$check(count($entries) === 2 && (int) $entries[1]['actor_id'] === (int) $creator['id'], 'Each operation must log the actual acting user once');
+$log = json_decode($entries[1]['context_json'], true, flags: JSON_THROW_ON_ERROR);
+$check($log['reason'] === $replace['reason'] && (int) $log['replacedPhoto']['id'] === $originalPhotoId,
+    'A replacement must archive the original reference and reason');
+$exported = $records->exportBatch($creator, [$id]);
+$check(array_column($exported[0]['photos'], 'file_path') === array_column($afterReplace['photos'], 'file_path'),
+    'A new export must use the current rectification photos');
+$expectHttp(fn () => $service->supplementRectificationPhoto($foreign, $creator, $photoPatch(), $upload), 404);
+$expectHttp(fn () => $service->supplementRectificationPhoto($makeRecord(), $creator, $photoPatch(), $upload), 409);
+$expectHttp(fn () => $service->supplementRectificationPhoto($makeRecord('隐患已清零'), $creator, $photoPatch(), $upload), 409);
+$expectHttp(fn () => $service->supplementRectificationPhoto($draft, $creator, $photoPatch(), $upload), 404);
+$expectHttp(fn () => $service->supplementRectificationPhoto($id, $creator, $photoPatch(['replacePhotoId' => $originalPhotoId]), $upload), 409);
+$expectHttp(fn () => $service->supplementRectificationPhoto($id, $creator, $photoPatch([
+    'replacePhotoId' => $records->findForUser($own, $creator)['photos'][0]['id'],
+]), $upload), 409);
+$expectHttp(fn () => $service->supplementRectificationPhoto($id, $creator, $photoPatch(['reason' => ' ']), $upload), 422);
+$check($uploadCount === 2, 'Rejected requests must not store any uploaded photo');
+
+$storage = new FileStorageService(new Config([]));
+$expectHttp(fn () => $controller->supplementRectificationPhoto(new Request(), ['id' => (string) $id], $storage), 401);
+$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+$_POST = $photoPatch();
+$expectHttp(fn () => $controller->supplementRectificationPhoto(new Request(), ['id' => (string) $id], $storage), 422);
+$check($controller->show(new Request(), ['id' => (string) $id])['record']['canSupplementRectificationPhoto'] === true,
+    'The detail API must expose the capability for rectified records');
+unset($_SERVER['HTTP_AUTHORIZATION']);
+$_POST = [];
+$check($service->show($id, $creator)['photos'] === $afterReplace['photos'], 'A failed file upload must preserve the current evidence');
+
+$pdo->exec("CREATE TRIGGER qa_supplement_audit_error BEFORE INSERT ON audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Injected isolated audit failure'");
+try {
+    try {
+        $service->supplementRectificationPhoto($id, $creator, $photoPatch([
+            'replacePhotoId' => $afterReplace['photos'][0]['id'],
+        ]), $upload);
+        throw new RuntimeException('Expected the simulated audit failure');
+    } catch (PDOException $error) {
+        $check($error->getCode() === '45000', 'Expected isolated audit trigger failure');
+    }
+} finally {
+    $pdo->exec('DROP TRIGGER qa_supplement_audit_error');
+}
+$check($service->show($id, $creator)['photos'] === $afterReplace['photos'], 'Audit failure must roll back photo changes');
 echo "Rectification access regression passed: {$checks} assertions.\n";

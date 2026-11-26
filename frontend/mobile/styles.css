@@ -1684,6 +1684,15 @@ body.keyboard-open .inspection-form {
   padding-top: 22px;
 }
 
+.supplement-photo-preview {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
 /* Photo preview */
 .photo-lightbox {
   display: grid;

@@ -120,6 +120,25 @@ final class RecordService
         $this->records->rectify($id, $user, $payload);
     }
 
+    /** @param array<string, mixed> $payload @param callable(): array<string, mixed> $storePhoto */
+    public function supplementRectificationPhoto(int $id, array $user, array $payload, callable $storePhoto): void
+    {
+        $operationId = $payload['operationId'] ?? null;
+        $reason = $payload['reason'] ?? null;
+        $replace = $payload['replacePhotoId'] ?? null;
+        if (!is_string($operationId) || !preg_match('/\A[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\z/i', $operationId)) {
+            throw new HttpException(422, '补录编号无效，请重新打开补录页面。');
+        }
+        if (!is_string($reason) || trim($reason) === '' || mb_strlen(trim($reason)) > 200) {
+            throw new HttpException(422, '请填写补录原因，最多 200 字。');
+        }
+        $replaceId = $replace === null ? null : filter_var($replace, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($replaceId === false || is_bool($replace)) {
+            throw new HttpException(422, '要替换的照片编号无效。');
+        }
+        $this->records->supplementRectificationPhoto($id, $user, strtolower($operationId), trim($reason), $replaceId, $storePhoto);
+    }
+
     /** @param array<string, mixed> $payload */
     private function validateCreate(array $payload): void
     {

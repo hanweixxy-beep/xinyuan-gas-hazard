@@ -368,20 +368,9 @@ final class RecordRepository
     /** @param array<string, mixed> $user @param array<string, mixed> $payload */
     public function rectify(int $id, array $user, array $payload): void
     {
-        [$where, $params] = $this->scopeCondition($user, 'r');
-        $params['id'] = $id;
         $this->pdo->beginTransaction();
         try {
-            $check = $this->pdo->prepare(
-                "SELECT r.id, r.status FROM inspection_records r
-                 WHERE r.id = :id AND r.record_state = 'submitted' AND {$where}
-                 FOR UPDATE"
-            );
-            $check->execute($params);
-            $record = $check->fetch();
-            if (!$record) {
-                throw new HttpException(404, '记录不存在，或你没有权限查看。');
-            }
+            $record = $this->lockSubmittedRecord($id, $user);
             if ($record['status'] !== 'pending') {
                 throw new HttpException(409, '该记录已完成整改或无需整改，请刷新记录后查看。');
             }
@@ -414,6 +403,89 @@ final class RecordRepository
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $exception;
         }
+    }
+
+    /** @param callable(): array<string, mixed> $storePhoto */
+    public function supplementRectificationPhoto(
+        int $id, array $user, string $operationId, string $reason, ?int $replaceId, callable $storePhoto
+    ): void {
+        $this->pdo->beginTransaction();
+        try {
+            $record = $this->lockSubmittedRecord($id, $user);
+            if ($record['status'] !== 'rectified') {
+                throw new HttpException(409, '只有已整改的记录可以补录整改照片。');
+            }
+            $auditScope = [
+                'actor' => (int) $user['id'],
+                'company' => (int) $record['company_id'],
+                'record' => $id,
+            ];
+            $previous = $this->pdo->prepare(
+                "SELECT id FROM audit_logs
+                 WHERE company_id = :company AND actor_id = :actor AND target_id = :record
+                   AND target_type = 'inspection_record' AND action = 'rectification_photo_supplement'
+                   AND JSON_UNQUOTE(JSON_EXTRACT(context_json, '$.operationId')) = :operation
+                 LIMIT 1"
+            );
+            $previous->execute($auditScope + ['operation' => $operationId]);
+            if ($previous->fetchColumn() !== false) {
+                $this->pdo->commit();
+                return;
+            }
+
+            $replacedPhoto = null;
+            if ($replaceId !== null) {
+                $photo = $this->pdo->prepare(
+                    "SELECT * FROM record_photos WHERE id = ? AND record_id = ? AND photo_type = 'rectification' FOR UPDATE"
+                );
+                $photo->execute([$replaceId, $id]);
+                $replacedPhoto = $photo->fetch();
+                if ($replacedPhoto === false) {
+                    throw new HttpException(409, '原整改照片已变化，请关闭后重新打开记录。');
+                }
+            }
+
+            $newPhoto = $storePhoto();
+            $this->insertPhoto($id, ['type' => 'rectification'] + $newPhoto);
+            $newPhotoId = (int) $this->pdo->lastInsertId();
+            $audit = $this->pdo->prepare(
+                "INSERT INTO audit_logs (actor_id, company_id, action, target_type, target_id, context_json)
+                 VALUES (:actor, :company, 'rectification_photo_supplement', 'inspection_record', :record, :context)"
+            );
+            $audit->execute($auditScope + ['context' => json_encode([
+                'operationId' => $operationId,
+                'reason' => $reason,
+                'actorName' => $user['name'] ?? '',
+                'photoId' => $newPhotoId,
+                'filePath' => $newPhoto['filePath'],
+                'replacedPhoto' => $replacedPhoto,
+            ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+            if ($replacedPhoto !== null) {
+                $delete = $this->pdo->prepare("DELETE FROM record_photos WHERE id = ? AND record_id = ? AND photo_type = 'rectification'");
+                $delete->execute([$replaceId, $id]);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $exception;
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function lockSubmittedRecord(int $id, array $user): array
+    {
+        [$where, $params] = $this->scopeCondition($user, 'r');
+        $check = $this->pdo->prepare(
+            "SELECT r.status, r.company_id FROM inspection_records r
+             WHERE r.id = :id AND r.record_state = 'submitted' AND {$where}
+             FOR UPDATE"
+        );
+        $check->execute($params + ['id' => $id]);
+        $record = $check->fetch();
+        if (!$record) {
+            throw new HttpException(404, '记录不存在，或你没有权限查看。');
+        }
+        return $record;
     }
 
     /** @param array<string, mixed> $user @param array<string, mixed> $filters @return array{0:string,1:array<string,mixed>} */

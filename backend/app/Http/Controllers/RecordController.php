@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Core\Request;
 use App\Services\AuthService;
+use App\Services\FileStorageService;
 use App\Services\RecordService;
 
 final class RecordController
@@ -57,7 +58,9 @@ final class RecordController
     public function show(Request $request, array $params): array
     {
         $user = $this->auth->requireUser($request->bearerToken());
-        return ['record' => $this->records->show((int) $params['id'], $user)];
+        $record = $this->records->show((int) $params['id'], $user);
+        $record['canSupplementRectificationPhoto'] = $record['status'] === 'rectified';
+        return ['record' => $record];
     }
 
     /** @return array<string, mixed> */
@@ -88,5 +91,18 @@ final class RecordController
         $user = $this->auth->requireUser($request->bearerToken());
         $this->records->rectify((int) $params['id'], $user, $request->json());
         return ['id' => (int) $params['id']];
+    }
+
+    /** @param array<string, string> $params @return array<string, mixed> */
+    public function supplementRectificationPhoto(Request $request, array $params, FileStorageService $storage): array
+    {
+        $user = $this->auth->requireUser($request->bearerToken());
+        $id = (int) $params['id'];
+        $this->records->supplementRectificationPhoto($id, $user, [
+            'operationId' => $request->input('operationId'),
+            'reason' => $request->input('reason'),
+            'replacePhotoId' => $request->input('replacePhotoId'),
+        ], $storage->storeUploadedFile(...));
+        return ['id' => $id];
     }
 }

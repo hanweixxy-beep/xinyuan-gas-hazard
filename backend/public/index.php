@@ -95,6 +95,7 @@ $router->add('POST', '/api/records/drafts', fn (Request $request) => $recordCont
 $router->add('POST', '/api/records/drafts/submit', fn (Request $request) => $recordController->submitDraft($request));
 $router->add('GET', '/api/records/{id}', fn (Request $request, array $params) => $recordController->show($request, $params));
 $router->add('POST', '/api/records/{id}/rectify', fn (Request $request, array $params) => $recordController->rectify($request, $params));
+$router->add('POST', '/api/records/{id}/rectification-photo', fn (Request $request, array $params) => $recordController->supplementRectificationPhoto($request, $params, $fileStorage));
 $router->add('POST', '/api/files/upload', fn (Request $request) => $fileController->upload($request));
 $router->add('POST', '/api/location/reverse-geocode', fn (Request $request) => $locationController->reverseGeocode($request));
 

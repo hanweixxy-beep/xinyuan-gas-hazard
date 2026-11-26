@@ -603,6 +603,23 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    suspend fun supplementCloudRectificationPhoto(
+        recordId: Long,
+        operationId: String,
+        reason: String,
+        replacePhotoId: Long?,
+        photoUri: String
+    ): Result<Unit> {
+        val settings = _cloudSettings.value
+        if (!settings.isLoggedIn) return Result.failure(IllegalStateException("请先登录 APP 账号"))
+        if (!isNetworkAvailable()) return Result.failure(IllegalStateException("当前网络不可用，照片尚未补录"))
+        val client = cloudClient(settings)
+        return withContext(Dispatchers.IO) {
+            client.supplementRectificationPhoto(recordId, operationId, reason, replacePhotoId, photoUri)
+        }.onSuccess { markCloudRequestSuccess() }
+            .onFailure { markCloudRequestFailure(it) }
+    }
+
     fun changeCloudPassword(currentPassword: String, newPassword: String) {
         viewModelScope.launch {
             val settings = _cloudSettings.value

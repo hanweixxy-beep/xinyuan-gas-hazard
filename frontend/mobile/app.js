@@ -42,6 +42,7 @@ const state = {
   recordsRequest: 0,
   recordsVisible: 50,
   currentRecord: null,
+  photoSupplement: null,
   organizationOptions: { regions: [], stores: [], loaded: false },
   recordOrganization: { regionId: 0, regionName: '', storeId: 0, storeName: '', remembered: false },
   photos: {},
@@ -882,6 +883,8 @@ async function openMobileRecord(id, button = null) {
 }
 
 function closeMobileRecordDetail() {
+  if (state.photoSupplement?.saving) return;
+  resetPhotoSupplement();
   $('#mobileRecordDetailSheet').classList.add('hidden');
   $('#mobileRecordDetailSheet').setAttribute('aria-hidden', 'true');
   $('#mobileRectifyForm').reset();
@@ -948,6 +951,72 @@ function renderMobileRecordDetail(record) {
 
   $('#mobileRectifyForm').classList.toggle('hidden', record.status !== 'pending');
   $('#mobileRectifyForm [name="rectificationDate"]').value = today();
+  resetPhotoSupplement();
+  const supplementForm = $('#mobilePhotoSupplementForm');
+  supplementForm.classList.toggle('hidden', record.status !== 'rectified' || record.canSupplementRectificationPhoto !== true);
+  const originals = (record.photos || []).filter((photo) => photo.photo_type === 'rectification' && Number(photo.id) > 0);
+  supplementForm.elements.replacePhotoId.innerHTML = '<option value="">追加照片</option>' + originals.map((photo, index) =>
+    `<option value="${Number(photo.id)}">替换第 ${index + 1} 张整改照片</option>`).join('');
+}
+
+function resetPhotoSupplement() {
+  if (state.photoSupplement?.previewUrl) URL.revokeObjectURL(state.photoSupplement.previewUrl);
+  state.photoSupplement = null;
+  $('#mobilePhotoSupplementForm').reset();
+  $('#supplementPhotoPreview').removeAttribute('src');
+  $('#supplementPhotoPreview').classList.add('hidden');
+}
+
+function updatePhotoSupplement(event) {
+  const form = $('#mobilePhotoSupplementForm');
+  const previous = state.photoSupplement;
+  if (previous?.saving) return;
+  let previewUrl = previous?.previewUrl;
+  if (event.target.name === 'file') {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const file = form.elements.file.files[0];
+    previewUrl = file ? URL.createObjectURL(file) : '';
+    const preview = $('#supplementPhotoPreview');
+    preview.classList.toggle('hidden', !previewUrl);
+    if (previewUrl) preview.src = previewUrl; else preview.removeAttribute('src');
+  }
+  const operationId = globalThis.crypto?.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const n = Math.floor(Math.random() * 16);
+    return (c === 'x' ? n : (n & 3) | 8).toString(16);
+  });
+  state.photoSupplement = { operationId, previewUrl, saving: false };
+  form.querySelector('[type="submit"]').textContent = form.elements.replacePhotoId.value ? '保存替换' : '保存补录';
+}
+
+async function submitPhotoSupplement(event) {
+  event.preventDefault();
+  const record = state.currentRecord;
+  const form = event.currentTarget;
+  if (!record || record.status !== 'rectified' || state.photoSupplement?.saving) return;
+  const file = form.elements.file.files[0];
+  if (!file || file.size > 10 * 1024 * 1024) throw new Error('请选择不超过 10MB 的 JPG、PNG 或 WebP 照片。');
+  if (!state.photoSupplement) updatePhotoSupplement({ target: form.elements.file });
+  const operationId = state.photoSupplement.operationId;
+  const body = new FormData(form);
+  body.set('reason', String(body.get('reason') || '').trim());
+  if (!body.get('reason')) throw new Error('请填写补录原因。');
+  if (!body.get('replacePhotoId')) body.delete('replacePhotoId');
+  body.set('operationId', operationId);
+  const controls = [...form.querySelectorAll('input, select, textarea, button')];
+  state.photoSupplement.saving = true;
+  controls.forEach((control) => { control.disabled = true; });
+  try {
+    await api(`/records/${record.id}/rectification-photo`, { method: 'POST', body });
+    // Refresh separately so a failed read cannot turn a saved upload into a retry.
+    state.photoSupplement.saving = false;
+    resetPhotoSupplement();
+    showToast('整改照片已补录');
+    $('#mobilePhotoSupplementForm').classList.add('hidden');
+    try { await openMobileRecord(record.id); } catch { showToast('照片已保存，请重新打开详情查看。'); }
+  } finally {
+    if (state.photoSupplement) state.photoSupplement.saving = false;
+    controls.forEach((control) => { control.disabled = false; });
+  }
 }
 
 function openPhotoPreview(url, title) {
@@ -1766,6 +1835,8 @@ function bindEvents() {
     if (event.target.dataset.photoPreviewClose) closePhotoPreview();
   });
   $('#mobileRectifyForm').addEventListener('submit', (event) => submitMobileRectification(event).catch((error) => showToast(error.message)));
+  $('#mobilePhotoSupplementForm').addEventListener('input', updatePhotoSupplement);
+  $('#mobilePhotoSupplementForm').addEventListener('submit', (event) => submitPhotoSupplement(event).catch((error) => showToast(error.message)));
   $('#changePasswordBtn').addEventListener('click', openPasswordDialog);
   $('#passwordCloseBtn').addEventListener('click', closePasswordDialog);
   $('#passwordDialog').addEventListener('click', (event) => {
